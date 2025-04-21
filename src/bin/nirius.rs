@@ -15,8 +15,8 @@
 
 //! The `nirius` binary.
 
-use nirius::cmds;
 use clap::Parser;
+use nirius::cmds;
 
 #[derive(clap::Parser)]
 #[clap(about, version, author)]

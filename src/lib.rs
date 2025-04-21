@@ -22,5 +22,5 @@ pub mod client;
 pub mod cmds;
 pub mod config;
 pub mod daemon;
-pub mod util;
 pub mod ipc;
+pub mod util;
