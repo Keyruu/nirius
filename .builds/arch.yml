@@ -1,0 +1,11 @@
+image: archlinux
+packages:
+  - rust
+sources:
+  - https://git.sr.ht/~tsdh/nirius
+tasks:
+  - build: |
+      cd nirius
+      cargo build
+      cargo test
+      cargo clippy
