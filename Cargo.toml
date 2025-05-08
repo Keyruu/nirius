@@ -1,6 +1,9 @@
 [package]
 name = "nirius"
 version = "0.1.0"
+description = "Utility commands for the niri wayland compositor"
+homepage = "https://sr.ht/~tsdh/nirius/"
+repository = "https://git.sr.ht/~tsdh/nirius"
 authors = ["Tassilo Horn <tsdh@gnu.org>"]
 license = "GPL-3.0+"
 edition = "2024"
