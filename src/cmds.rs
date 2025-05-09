@@ -20,22 +20,36 @@ use niri_ipc::{Action, Request, Response, Window};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+static NO_MATCHING_WINDOW: &str = "No matching window.";
+
 #[derive(clap::Parser, PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
 pub enum NiriusCmd {
+    /// Focus the window matching the given options.  If there is more than one
+    /// matching window, cycle through them.  If there is none, exit non-zero.
+    Focus {
+        #[clap(flatten)]
+        match_opts: MatchOptions,
+    },
+    /// Focus the window matching the given options.  If there is more than one
+    /// matching window, cycle through them.  If there is none, spawn the given
+    /// COMMAND instead.
     FocusOrSpawn {
         #[clap(flatten)]
         match_opts: MatchOptions,
         command: Vec<String>,
     },
+    /// Does nothing except having the side-effect of clearing the list of
+    /// windows that were already visited by a sequence of `focus` or
+    /// `focus-or-spawn` commands.
     Nop,
 }
 
 #[derive(clap::Parser, PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
 pub struct MatchOptions {
-    #[clap(short = 'a', long, help = "Matches window app-ids")]
+    #[clap(short = 'a', long, help = "A regex  matched on window app-ids")]
     app_id: Option<String>,
 
-    #[clap(short = 't', long, help = "Matches window titles")]
+    #[clap(short = 't', long, help = "A regex matched on window titles")]
     title: Option<String>,
 }
 
@@ -46,6 +60,10 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
 
     let result = match &cmd {
         NiriusCmd::Nop => Ok("Nothing done".to_string()),
+        NiriusCmd::Focus { match_opts } => {
+            clear_focused_win_ids = false;
+            focus(match_opts)
+        }
         NiriusCmd::FocusOrSpawn {
             match_opts,
             command,
@@ -69,6 +87,21 @@ fn focus_or_spawn(
     match_opts: &MatchOptions,
     command: &[String],
 ) -> Result<String, String> {
+    match focus(match_opts) {
+        Err(str) if NO_MATCHING_WINDOW == str => {
+            let r = ipc::query_niri(Request::Action(Action::Spawn {
+                command: command.to_vec(),
+            }))?;
+            match r {
+                Response::Handled => Ok("Spawned successfully".to_string()),
+                x => Err(format!("Received unexpected reply {:?}", x)),
+            }
+        }
+        x => x,
+    }
+}
+
+fn focus(match_opts: &MatchOptions) -> Result<String, String> {
     match ipc::query_niri(Request::Windows)? {
         Response::Windows(mut wins) => {
             let mut ids = FOCUSED_WIN_IDS.lock().expect("Could not lock mutex");
@@ -96,27 +129,20 @@ fn focus_or_spawn(
 
                 a.id.cmp(&b.id)
             });
-            log::debug!("ids: {:?}", ids);
             if let Some(win) = wins.first() {
                 if !ids.contains(&win.id) {
                     ids.push(win.id);
                 }
-                focus_window(win.id)
+                focus_window_by_id(win.id)
             } else {
-                let r = ipc::query_niri(Request::Action(Action::Spawn {
-                    command: command.to_vec(),
-                }))?;
-                match r {
-                    Response::Handled => Ok("Spawned successfully".to_string()),
-                    x => Err(format!("Received unexpected reply {:?}", x)),
-                }
+                Err(NO_MATCHING_WINDOW.to_owned())
             }
         }
         x => Err(format!("Received unexpected reply {:?}", x)),
     }
 }
 
-fn focus_window(id: u64) -> Result<String, String> {
+fn focus_window_by_id(id: u64) -> Result<String, String> {
     match ipc::query_niri(Request::Action(Action::FocusWindow { id }))? {
         Response::Handled => Ok(format!("Focused window with id {}", id)),
         x => Err(format!("Received unexpected reply {:?}", x)),

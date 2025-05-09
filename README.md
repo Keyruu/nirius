@@ -12,10 +12,12 @@ using the `nirius` utility.  The daemon is best started by adding
 
 ## Commands
 
-- `focus-or-spawn [OPTIONS] [COMMAND]...`: Focuses a matching window if there
-  is one, otherwise spawns the given command.  What windows match is specified
-  using the options `--app-id` (`-a`) and `--title` (`-t`).  If there are
-  multiple matching windows, the command cycles through them.
+- `focus [OPTIONS]`: Focuses a matching window if there is one, otherwise exits
+  non-zero.  What windows match is specified using the options `--app-id`
+  (`-a`) and `--title` (`-t`), both regular expressions.  If there are multiple
+  matching windows, the command cycles through them.
+- `focus-or-spawn [OPTIONS] [COMMAND]...`: Same behavior as `focus` except that
+  it spawns `COMMAND` instead of exiting non-zero if no matching window exists.
 
 ## <a id="questions-and-patches">Questions & Patches</a>
 
