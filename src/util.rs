@@ -14,7 +14,10 @@
 // this program.  If not, see <https://www.gnu.org/licenses/>.
 
 pub fn get_nirius_socket_path() -> String {
-    // TODO: Is the comment below still accurrate?
+    // TODO: Is the comment below still accurrate?  I think so.  At least in
+    // directories 6.0.0 it is still checked that the runtime dir is absolute.
+    // That might be dictated by the spec but it's not really important for
+    // us...
     //
     // We prefer checking the env variable instead of
     // directories::BaseDirs::new().unwrap().runtime_dir().unwrap() because
