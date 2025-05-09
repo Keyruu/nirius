@@ -1,6 +1,6 @@
 [package]
 name = "nirius"
-version = "0.1.0"
+version = "0.1.1"
 description = "Utility commands for the niri wayland compositor"
 homepage = "https://sr.ht/~tsdh/nirius/"
 repository = "https://git.sr.ht/~tsdh/nirius"
