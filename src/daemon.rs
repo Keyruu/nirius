@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License along with
 // this program.  If not, see <https://www.gnu.org/licenses/>.
 
-//! Functions and data structures of the swayrd daemon.
+//! Functions and data structures of the niriusd daemon.
 
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
