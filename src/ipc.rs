@@ -18,8 +18,9 @@ use niri_ipc::{Request, Response};
 
 pub fn query_niri(req: Request) -> Result<Response, String> {
     match Socket::connect() {
-        Ok(socket) => match socket.send(req) {
-            Ok((reply, _)) => reply,
+        Ok(mut socket) => match socket.send(req) {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(e)) => Err(e),
             Err(err) => Err(err.to_string()),
         },
         Err(err) => {

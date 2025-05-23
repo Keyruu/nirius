@@ -17,15 +17,73 @@
 
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
+use std::sync::Mutex;
+
+use niri_ipc::Request;
+use niri_ipc::Response;
+use niri_ipc::WorkspaceReferenceArg;
 
 use crate::cmds;
 use crate::util;
 
+pub static FOLLOW_MODE_WIN_IDS: Mutex<Vec<u64>> = Mutex::new(vec![]);
+
 pub fn run_daemon() {
+    std::thread::spawn(process_events);
     serve_client_requests();
 }
 
-pub fn serve_client_requests() {
+fn process_events() -> std::io::Result<()> {
+    let mut socket = niri_ipc::socket::Socket::connect()?;
+
+    let reply = socket.send(Request::EventStream)?;
+    if matches!(reply, Ok(Response::Handled)) {
+        let mut read_event = socket.read_events();
+        while let Ok(event) = read_event() {
+            match handle_event(&event) {
+                Ok(msg) => {
+                    log::info!(
+                        "Handled event successfully: {:?} => {}",
+                        event,
+                        msg
+                    )
+                }
+                Err(_) => todo!(),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
+    match event {
+        niri_ipc::Event::WorkspaceActivated { id, focused } if *focused => {
+            move_follow_mode_windows(*id)
+        }
+        _other => Ok("Nothing to do.".to_owned()),
+    }
+}
+
+fn move_follow_mode_windows(workspace_id: u64) -> Result<String, String> {
+    match FOLLOW_MODE_WIN_IDS.lock() {
+        Ok(ids) => {
+            for id in ids.iter() {
+                crate::ipc::query_niri(Request::Action(
+                    niri_ipc::Action::MoveWindowToWorkspace {
+                        window_id: Some(*id),
+                        reference: WorkspaceReferenceArg::Id(workspace_id),
+                        focus: true,
+                    },
+                ))?;
+            }
+            Ok("Moved".to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn serve_client_requests() {
     let socket_path = util::get_nirius_socket_path();
 
     match std::fs::exists(&socket_path) {

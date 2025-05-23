@@ -42,6 +42,10 @@ pub enum NiriusCmd {
     /// windows that were already visited by a sequence of `focus` or
     /// `focus-or-spawn` commands.
     Nop,
+    /// Enables or disables follow-mode for the currently focused window.  A
+    /// window in follow-mode moves automatically to whatever workspace that
+    /// receives focus.
+    ToggleFollowMode,
 }
 
 #[derive(clap::Parser, PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
@@ -71,6 +75,7 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
             clear_focused_win_ids = false;
             focus_or_spawn(match_opts, command)
         }
+        NiriusCmd::ToggleFollowMode => toggle_follow_mode(),
     };
 
     if clear_focused_win_ids {
@@ -81,6 +86,37 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
     }
 
     result
+}
+
+fn get_focused_window() -> Result<niri_ipc::Window, String> {
+    match ipc::query_niri(Request::FocusedWindow)? {
+        Response::FocusedWindow(window) => {
+            window.ok_or("No focused window".to_owned())
+        }
+        x => Err(format!("Received unexpected reply {:?}", x)),
+    }
+}
+
+fn toggle_follow_mode() -> Result<String, String> {
+    let focused_win = get_focused_window()?;
+    match crate::daemon::FOLLOW_MODE_WIN_IDS.lock() {
+        Ok(mut ids) => {
+            if ids.contains(&focused_win.id) {
+                if let Some(index) =
+                    ids.iter().position(|id| *id == focused_win.id)
+                {
+                    // swap_remove() would be more efficient but I think we
+                    // want to retain the order.
+                    ids.remove(index);
+                }
+                Ok(format!("Disabled follow mode for window {:?}", focused_win))
+            } else {
+                ids.push(focused_win.id);
+                Ok(format!("Enabled follow mode for window {:?}", focused_win))
+            }
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn focus_or_spawn(
