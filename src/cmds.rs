@@ -46,6 +46,15 @@ pub enum NiriusCmd {
     /// window in follow-mode moves automatically to whatever workspace that
     /// receives focus.
     ToggleFollowMode,
+    /// Marks or unmarks the currently focused window.  You can switch to the
+    /// marked window or cycle trough all marked windows using the
+    /// `focus-marked` command.
+    ToggleMark,
+    /// Focuses the marked window or cycles through all marked windows.  To
+    /// mark a window, use the `toggle-mark` command.
+    FocusMarked,
+    /// List all windows which are currenty marked on stdout.
+    ListMarked,
 }
 
 #[derive(clap::Parser, PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
@@ -57,33 +66,36 @@ pub struct MatchOptions {
     title: Option<String>,
 }
 
-static FOCUSED_WIN_IDS: Mutex<Vec<u64>> = Mutex::new(vec![]);
+static ALREADY_FOCUSED_WIN_IDS: Mutex<Vec<u64>> = Mutex::new(vec![]);
+static MARKED_WIN_IDS: Mutex<Vec<u64>> = Mutex::new(vec![]);
+static LAST_COMMAND: Mutex<Option<NiriusCmd>> = Mutex::new(None);
 
 pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
-    let mut clear_focused_win_ids = true;
+    let mut last_command = LAST_COMMAND.lock().expect("Could not lock mutex.");
+    let clear_focused_win_ids =
+        last_command.as_ref().is_some_and(|lc| lc != &cmd);
 
     let result = match &cmd {
         NiriusCmd::Nop => Ok("Nothing done".to_string()),
-        NiriusCmd::Focus { match_opts } => {
-            clear_focused_win_ids = false;
-            focus(match_opts)
-        }
+        NiriusCmd::Focus { match_opts } => focus(match_opts),
         NiriusCmd::FocusOrSpawn {
             match_opts,
             command,
-        } => {
-            clear_focused_win_ids = false;
-            focus_or_spawn(match_opts, command)
-        }
+        } => focus_or_spawn(match_opts, command),
         NiriusCmd::ToggleFollowMode => toggle_follow_mode(),
+        NiriusCmd::ToggleMark => toggle_mark(),
+        NiriusCmd::FocusMarked => focus_marked(),
+        NiriusCmd::ListMarked => list_marked(),
     };
 
     if clear_focused_win_ids {
-        FOCUSED_WIN_IDS
+        ALREADY_FOCUSED_WIN_IDS
             .lock()
             .expect("Could not lock mutex")
             .clear()
     }
+
+    *last_command = Some(cmd.clone());
 
     result
 }
@@ -140,7 +152,9 @@ fn focus_or_spawn(
 fn focus(match_opts: &MatchOptions) -> Result<String, String> {
     match ipc::query_niri(Request::Windows)? {
         Response::Windows(mut wins) => {
-            let mut ids = FOCUSED_WIN_IDS.lock().expect("Could not lock mutex");
+            let mut ids = ALREADY_FOCUSED_WIN_IDS
+                .lock()
+                .expect("Could not lock mutex");
             wins.retain(|w| window_matches(w, match_opts));
             if wins.iter().all(|w| ids.contains(&w.id)) {
                 ids.clear();
@@ -206,4 +220,101 @@ fn window_matches(w: &Window, match_opts: &MatchOptions) -> bool {
     }
 
     true
+}
+
+fn toggle_mark() -> Result<String, String> {
+    let focused_win = get_focused_window()?;
+    match MARKED_WIN_IDS.lock() {
+        Ok(mut ids) => {
+            if ids.contains(&focused_win.id) {
+                if let Some(index) =
+                    ids.iter().position(|id| *id == focused_win.id)
+                {
+                    // swap_remove() would be more efficient but I think we
+                    // want to retain the order.
+                    ids.remove(index);
+                }
+                Ok(format!("Unset mark for window {:?}", focused_win))
+            } else {
+                ids.push(focused_win.id);
+                Ok(format!("Set mark for window {:?}", focused_win))
+            }
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn focus_marked() -> Result<String, String> {
+    let mut marked_windows =
+        MARKED_WIN_IDS.lock().expect("Could not lock mutex.");
+    if marked_windows.is_empty() {
+        return Err("No marked windows.".to_owned());
+    }
+
+    let mut already_focused = ALREADY_FOCUSED_WIN_IDS
+        .lock()
+        .expect("Could not lock mutex");
+
+    // Do some cleanup, i.e., remove window ids from MARKED_WIN_IDS which don't
+    // exist anymore.
+    match ipc::query_niri(Request::Windows)? {
+        Response::Windows(wins) => {
+            // Remove marked window ids that don't exist anymore.
+            marked_windows.retain(|mw| wins.iter().any(|w| &w.id == mw));
+        }
+        x => return Err(format!("Received unexpected reply {:?}", x)),
+    }
+
+    // The currently focused window is already visited, too.
+    if let Ok(current_win) = get_focused_window() {
+        if !already_focused.contains(&current_win.id) {
+            already_focused.push(current_win.id);
+        }
+    }
+
+    // If we already visited all of the marked window, start a new
+    // cycle.
+    if marked_windows.iter().all(|w| already_focused.contains(w)) {
+        already_focused.clear();
+    }
+
+    if let Some(win_id) = marked_windows
+        .iter()
+        .find(|id| !already_focused.contains(id))
+    {
+        already_focused.push(*win_id);
+        focus_window_by_id(*win_id)
+    } else {
+        Err("No marked window.".to_owned())
+    }
+}
+
+fn list_marked() -> Result<String, String> {
+    let mut marked_windows =
+        MARKED_WIN_IDS.lock().expect("Could not lock mutex.");
+    if marked_windows.is_empty() {
+        return Err("No marked windows.".to_owned());
+    }
+
+    match ipc::query_niri(Request::Windows)? {
+        Response::Windows(wins) => {
+            // Remove marked window ids that don't exist anymore.
+            marked_windows.retain(|mw| wins.iter().any(|w| &w.id == mw));
+            let wins: Vec<&Window> = marked_windows
+                .iter()
+                .flat_map(|id| wins.iter().find(|w| &w.id == id))
+                .collect();
+            let mut str = String::new();
+            for win in wins {
+                let line = format!(
+                    "id: {}, app-id: {:?}, title: {:?}, on workspace: {:?}",
+                    win.id, win.app_id, win.title, win.workspace_id
+                );
+                str.push_str(line.as_str());
+                str.push('\n');
+            }
+            Ok(str)
+        }
+        x => Err(format!("Received unexpected reply {:?}", x)),
+    }
 }
