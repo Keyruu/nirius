@@ -18,13 +18,18 @@ using the `nirius` utility.  The daemon is best started by adding
   matching windows, the command cycles through them.
 - `focus-or-spawn [OPTIONS] [COMMAND]...`: Same behavior as `focus` except that
   it spawns `COMMAND` instead of exiting non-zero if no matching window exists.
+- `toggle-mark`: Marks or unmarks a window.  Marked windows can be focused
+  using `focus-marked`.
+- `focus-marked`: Focuses the marked window or cycles through all marked
+  windows.
+- `list-marked`: Lists all marked windows on stdout.
+- `nop`: Does nothing except having the side-effect of clearing the list of
+  already visited windows captured during a sequence of `focus`,
+  `focus-or-spawn`, or `focus-marked` commands.
 - `toggle-follow-mode`: Enables or disables *follow mode* for the currently
   focused window.  When switching to another workspace, all windows in follow
   mode are moved to that workspace.  (The main use-case for *follow mode* are
   floating video player windows, e.g., firefox Picture-in-Picture windows.)
-- `nop`: Does nothing except having the side-effect of clearing the list of
-  already visited windows captured during a sequence of `focus` or
-  `focus-or-spawn` commands.
 
 ## <a id="questions-and-patches">Questions & Patches</a>
 
