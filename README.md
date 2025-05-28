@@ -1,4 +1,4 @@
-# Nirius: utility commands for niri
+# Nirius: utility commands for the niri wayland compositor
 
 [![builds.sr.ht status](https://builds.sr.ht/~tsdh/nirius.svg)](https://builds.sr.ht/~tsdh/nirius?)
 [![License GPL 3 or later](https://img.shields.io/crates/l/nirius.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
@@ -10,7 +10,7 @@ compositor.  You have to start the `niriusd` daemon and then issue commands
 using the `nirius` utility.  The daemon is best started by adding
 `spawn-at-startup "niriusd"` to niri's `config.kdl`.
 
-## Commands
+## <a id="installation">Commands</a>
 
 - `focus [OPTIONS]`: Focuses a matching window if there is one, otherwise exits
   non-zero.  What windows match is specified using the options `--app-id`
@@ -30,6 +30,43 @@ using the `nirius` utility.  The daemon is best started by adding
   focused window.  When switching to another workspace, all windows in follow
   mode are moved to that workspace.  (The main use-case for *follow mode* are
   floating video player windows, e.g., firefox Picture-in-Picture windows.)
+
+### <a id="installation">Installation</a>
+
+Some distros have packaged nirius so that you can install it using your
+distro's package manager.  Alternatively, it's easy to build and install it
+yourself using `cargo`.
+
+#### Distro packages
+
+The following GNU/Linux and BSD distros package nirius.  Thanks a lot to the
+respective package maintainers!  Refer to the [repology
+site](https://repology.org/project/nirius/versions) for details.
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/nirius.svg)](https://repology.org/project/nirius/versions)
+
+#### Building with cargo
+
+You'll need to install the current stable rust toolchain using the one-liner
+shown at the [official rust installation
+page](https://www.rust-lang.org/tools/install).
+
+Then you can install nirius like so:
+```sh
+cargo install nirius
+```
+
+For getting updates easily, I recommend the cargo `cargo-update` plugin.
+```sh
+# Install it once.
+cargo install cargo-update
+
+# Then you can update all installed rust binary crates including nirius using:
+cargo install-update --all
+
+# If you only want to update nirius, you can do so using:
+cargo install-update -- nirius
+```
 
 ## <a id="questions-and-patches">Questions & Patches</a>
 
