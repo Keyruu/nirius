@@ -18,11 +18,15 @@ using the `nirius` utility.  The daemon is best started by adding
   matching windows, the command cycles through them.
 - `focus-or-spawn [OPTIONS] [COMMAND]...`: Same behavior as `focus` except that
   it spawns `COMMAND` instead of exiting non-zero if no matching window exists.
-- `toggle-mark`: Marks or unmarks a window.  Marked windows can be focused
-  using `focus-marked`.
-- `focus-marked`: Focuses the marked window or cycles through all marked
-  windows.
-- `list-marked`: Lists all marked windows on stdout.
+- `toggle-mark [MARK]`: Marks or unmarks a window with the given or default
+  mark (which is `__default__`).  Marked windows can be focused using
+  `focus-marked`.
+- `focus-marked [MARK]`: Focuses the window marked with `MARK`, or the default
+  mark `__default__` if not given.  If there are multiple such windows, cycles
+  through all of them.
+- `list-marked [MARK]`: Lists all windows marked with `MARK`, or the default
+  mark if not given, on stdout.  If the `--all` flag is given, list all windows
+  of all marks.
 - `nop`: Does nothing except having the side-effect of clearing the list of
   already visited windows captured during a sequence of `focus`,
   `focus-or-spawn`, or `focus-marked` commands.

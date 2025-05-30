@@ -352,7 +352,7 @@ fn list_all_marked() -> Result<String, String> {
             .lock()
             .expect("Could not lock mutex.")
             .keys()
-            .map(|k| k.clone())
+            .cloned()
             .collect::<Vec<String>>();
     }
 
