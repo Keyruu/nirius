@@ -13,7 +13,11 @@
 // You should have received a copy of the GNU General Public License along with
 // this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::{cmp::Ordering, sync::Mutex};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+};
 
 use crate::ipc;
 use niri_ipc::{Action, Request, Response, Window};
@@ -46,15 +50,21 @@ pub enum NiriusCmd {
     /// window in follow-mode moves automatically to whatever workspace that
     /// receives focus.
     ToggleFollowMode,
-    /// Marks or unmarks the currently focused window.  You can switch to the
-    /// marked window or cycle trough all marked windows using the
-    /// `focus-marked` command.
-    ToggleMark,
-    /// Focuses the marked window or cycles through all marked windows.  To
-    /// mark a window, use the `toggle-mark` command.
-    FocusMarked,
-    /// List all windows which are currenty marked on stdout.
-    ListMarked,
+    /// Marks or unmarks the currently focused window with the given or default
+    /// mark.  You can switch to the marked window or cycle trough all marked
+    /// windows using the `focus-marked` command.
+    ToggleMark { mark: Option<String> },
+    /// Focuses the window with the given mark or the default mark, if no mark
+    /// is given.  If there are multiple marked windows, cycles through all of
+    /// them.  To mark a window, use the `toggle-mark` command.
+    FocusMarked { mark: Option<String> },
+    /// List all windows with the given or default mark, if no mark is given,
+    /// on stdout.
+    ListMarked {
+        mark: Option<String>,
+        #[clap(short = 'a', long, help = "List all marks with their windows")]
+        all: bool,
+    },
 }
 
 #[derive(clap::Parser, PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
@@ -67,7 +77,11 @@ pub struct MatchOptions {
 }
 
 static ALREADY_FOCUSED_WIN_IDS: Mutex<Vec<u64>> = Mutex::new(vec![]);
-static MARKED_WIN_IDS: Mutex<Vec<u64>> = Mutex::new(vec![]);
+
+static DEFAULT_MARK: &str = "__default__";
+static MARK_TO_WIN_IDS: LazyLock<Mutex<HashMap<String, Vec<u64>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 static LAST_COMMAND: Mutex<Option<NiriusCmd>> = Mutex::new(None);
 
 pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
@@ -83,9 +97,19 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
             command,
         } => focus_or_spawn(match_opts, command),
         NiriusCmd::ToggleFollowMode => toggle_follow_mode(),
-        NiriusCmd::ToggleMark => toggle_mark(),
-        NiriusCmd::FocusMarked => focus_marked(),
-        NiriusCmd::ListMarked => list_marked(),
+        NiriusCmd::ToggleMark { mark } => {
+            toggle_mark(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
+        }
+        NiriusCmd::FocusMarked { mark } => {
+            focus_marked(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
+        }
+        NiriusCmd::ListMarked { mark, all } => {
+            if *all {
+                list_all_marked()
+            } else {
+                list_marked(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
+            }
+        }
     };
 
     if clear_focused_win_ids {
@@ -222,10 +246,11 @@ fn window_matches(w: &Window, match_opts: &MatchOptions) -> bool {
     true
 }
 
-fn toggle_mark() -> Result<String, String> {
+fn toggle_mark(mark: String) -> Result<String, String> {
     let focused_win = get_focused_window()?;
-    match MARKED_WIN_IDS.lock() {
-        Ok(mut ids) => {
+    match MARK_TO_WIN_IDS.lock() {
+        Ok(mut map) => {
+            let ids = map.entry(mark).or_insert_with(std::vec::Vec::new);
             if ids.contains(&focused_win.id) {
                 if let Some(index) =
                     ids.iter().position(|id| *id == focused_win.id)
@@ -244,77 +269,100 @@ fn toggle_mark() -> Result<String, String> {
     }
 }
 
-fn focus_marked() -> Result<String, String> {
-    let mut marked_windows =
-        MARKED_WIN_IDS.lock().expect("Could not lock mutex.");
-    if marked_windows.is_empty() {
-        return Err("No marked windows.".to_owned());
-    }
+fn focus_marked(mark: String) -> Result<String, String> {
+    let mut map = MARK_TO_WIN_IDS.lock().expect("Could not lock mutex.");
+    if let Some(marked_windows) = map.get_mut(&mark) {
+        let mut already_focused = ALREADY_FOCUSED_WIN_IDS
+            .lock()
+            .expect("Could not lock mutex");
 
-    let mut already_focused = ALREADY_FOCUSED_WIN_IDS
-        .lock()
-        .expect("Could not lock mutex");
-
-    // Do some cleanup, i.e., remove window ids from MARKED_WIN_IDS which don't
-    // exist anymore.
-    match ipc::query_niri(Request::Windows)? {
-        Response::Windows(wins) => {
-            // Remove marked window ids that don't exist anymore.
-            marked_windows.retain(|mw| wins.iter().any(|w| &w.id == mw));
+        // Do some cleanup, i.e., remove window ids from MARKED_WIN_IDS which don't
+        // exist anymore.
+        match ipc::query_niri(Request::Windows)? {
+            Response::Windows(wins) => {
+                // Remove marked window ids that don't exist anymore.
+                marked_windows.retain(|mw| wins.iter().any(|w| &w.id == mw));
+            }
+            x => return Err(format!("Received unexpected reply {:?}", x)),
         }
-        x => return Err(format!("Received unexpected reply {:?}", x)),
-    }
 
-    // The currently focused window is already visited, too.
-    if let Ok(current_win) = get_focused_window() {
-        if !already_focused.contains(&current_win.id) {
-            already_focused.push(current_win.id);
+        // The currently focused window is already visited, too.
+        if let Ok(current_win) = get_focused_window() {
+            if !already_focused.contains(&current_win.id) {
+                already_focused.push(current_win.id);
+            }
         }
-    }
 
-    // If we already visited all of the marked window, start a new
-    // cycle.
-    if marked_windows.iter().all(|w| already_focused.contains(w)) {
-        already_focused.clear();
-    }
+        // If we already visited all of the marked window, start a new
+        // cycle.
+        if marked_windows.iter().all(|w| already_focused.contains(w)) {
+            already_focused.clear();
+        }
 
-    if let Some(win_id) = marked_windows
-        .iter()
-        .find(|id| !already_focused.contains(id))
-    {
-        already_focused.push(*win_id);
-        focus_window_by_id(*win_id)
+        if let Some(win_id) = marked_windows
+            .iter()
+            .find(|id| !already_focused.contains(id))
+        {
+            already_focused.push(*win_id);
+            focus_window_by_id(*win_id)
+        } else {
+            Err("No marked window.".to_owned())
+        }
     } else {
-        Err("No marked window.".to_owned())
+        Err("No such mark.".to_owned())
     }
 }
 
-fn list_marked() -> Result<String, String> {
-    let mut marked_windows =
-        MARKED_WIN_IDS.lock().expect("Could not lock mutex.");
-    if marked_windows.is_empty() {
-        return Err("No marked windows.".to_owned());
+fn list_marked(mark: String) -> Result<String, String> {
+    let mut map = MARK_TO_WIN_IDS.lock().expect("Could not lock mutex.");
+
+    if let Some(marked_windows) = map.get_mut(&mark) {
+        match ipc::query_niri(Request::Windows)? {
+            Response::Windows(wins) => {
+                // Remove marked window ids that don't exist anymore.
+                marked_windows.retain(|mw| wins.iter().any(|w| &w.id == mw));
+                let wins: Vec<&Window> = marked_windows
+                    .iter()
+                    .flat_map(|id| wins.iter().find(|w| &w.id == id))
+                    .collect();
+                let mut str = String::new();
+                for win in wins {
+                    let line = format!(
+                        "id: {}, app-id: {:?}, title: {:?}, on workspace: {:?}",
+                        win.id, win.app_id, win.title, win.workspace_id
+                    );
+                    str.push_str(line.as_str());
+                    str.push('\n');
+                }
+                Ok(str)
+            }
+            x => Err(format!("Received unexpected reply {:?}", x)),
+        }
+    } else {
+        Err("No such mark.".to_owned())
+    }
+}
+
+fn list_all_marked() -> Result<String, String> {
+    let keys: Vec<String>;
+    // In a block so that the mutex is unlocked again immediately before we
+    // call list_marked() which will lock again below in the loop.
+    {
+        keys = MARK_TO_WIN_IDS
+            .lock()
+            .expect("Could not lock mutex.")
+            .keys()
+            .map(|k| k.clone())
+            .collect::<Vec<String>>();
     }
 
-    match ipc::query_niri(Request::Windows)? {
-        Response::Windows(wins) => {
-            // Remove marked window ids that don't exist anymore.
-            marked_windows.retain(|mw| wins.iter().any(|w| &w.id == mw));
-            let wins: Vec<&Window> = marked_windows
-                .iter()
-                .flat_map(|id| wins.iter().find(|w| &w.id == id))
-                .collect();
-            let mut str = String::new();
-            for win in wins {
-                let line = format!(
-                    "id: {}, app-id: {:?}, title: {:?}, on workspace: {:?}",
-                    win.id, win.app_id, win.title, win.workspace_id
-                );
-                str.push_str(line.as_str());
-                str.push('\n');
-            }
-            Ok(str)
+    let mut s = String::new();
+    for mark in keys {
+        s.push_str(format!("-> {}:\n", mark).as_str());
+        match list_marked(mark.to_string()) {
+            Ok(marks) => s.push_str(marks.as_str()),
+            err @ Err(_) => return err,
         }
-        x => Err(format!("Received unexpected reply {:?}", x)),
     }
+    Ok(s)
 }
