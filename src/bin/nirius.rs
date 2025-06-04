@@ -29,11 +29,17 @@ fn main() -> Result<(), String> {
     let opts: Opts = Opts::parse();
     match nirius::client::send_nirius_cmd(opts.command) {
         Ok(val) => {
-            println!("{}", val.trim());
+            let str = val.trim();
+            if !str.is_empty() {
+                println!("{}", str);
+            }
             Ok(())
         }
         Err(err) => {
-            eprintln!("{}", err.trim());
+            let str = err.trim();
+            if !str.is_empty() {
+                eprintln!("{}", str);
+            }
             Err("Command failed".to_owned())
         }
     }
