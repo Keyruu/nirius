@@ -17,16 +17,14 @@
 
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
-use std::sync::Mutex;
 
 use niri_ipc::Request;
 use niri_ipc::Response;
 use niri_ipc::WorkspaceReferenceArg;
 
 use crate::cmds;
+use crate::state::STATE;
 use crate::util;
-
-pub static FOLLOW_MODE_WIN_IDS: Mutex<Vec<u64>> = Mutex::new(vec![]);
 
 pub fn run_daemon() {
     std::thread::spawn(process_events);
@@ -61,26 +59,27 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
         niri_ipc::Event::WorkspaceActivated { id, focused } if *focused => {
             move_follow_mode_windows(*id)
         }
+        niri_ipc::Event::WindowClosed { id } => {
+            let mut state = STATE.lock().expect("Could not lock state.");
+            state.remove_window(id);
+            Ok(String::new())
+        }
         _other => Ok("Nothing to do.".to_owned()),
     }
 }
 
 fn move_follow_mode_windows(workspace_id: u64) -> Result<String, String> {
-    match FOLLOW_MODE_WIN_IDS.lock() {
-        Ok(ids) => {
-            for id in ids.iter() {
-                crate::ipc::query_niri(Request::Action(
-                    niri_ipc::Action::MoveWindowToWorkspace {
-                        window_id: Some(*id),
-                        reference: WorkspaceReferenceArg::Id(workspace_id),
-                        focus: true,
-                    },
-                ))?;
-            }
-            Ok("Moved".to_string())
-        }
-        Err(e) => Err(e.to_string()),
+    let state = STATE.lock().expect("Could not lock mutex");
+    for id in state.follow_mode_win_ids.iter() {
+        crate::ipc::query_niri(Request::Action(
+            niri_ipc::Action::MoveWindowToWorkspace {
+                window_id: Some(*id),
+                reference: WorkspaceReferenceArg::Id(workspace_id),
+                focus: true,
+            },
+        ))?;
     }
+    Ok("Moved".to_string())
 }
 
 fn serve_client_requests() {
