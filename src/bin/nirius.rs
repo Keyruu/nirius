@@ -31,14 +31,14 @@ fn main() -> Result<(), String> {
         Ok(val) => {
             let str = val.trim();
             if !str.is_empty() {
-                println!("{}", str);
+                println!("{str}");
             }
             Ok(())
         }
         Err(err) => {
             let str = err.trim();
             if !str.is_empty() {
-                eprintln!("{}", str);
+                eprintln!("{str}");
             }
             Err("Command failed".to_owned())
         }

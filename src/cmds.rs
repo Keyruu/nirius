@@ -16,7 +16,7 @@
 use std::{cmp::Ordering, sync::Mutex};
 
 use crate::{ipc, state::STATE};
-use niri_ipc::{Action, Request, Response, Window};
+use niri_ipc::{Action, Request, Response, Window, Workspace};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +37,19 @@ pub enum NiriusCmd {
         #[clap(flatten)]
         match_opts: MatchOptions,
         command: Vec<String>,
+    },
+    /// Move a window matching the given options to the current workspace.
+    /// Only windows of non-active workspaces are considered.  If there is no
+    /// such window, exit non-zero.
+    MoveToCurrentWorkspace {
+        #[clap(flatten)]
+        match_opts: MatchOptions,
+        #[clap(
+            short = 'f',
+            long,
+            help = "Focus the window after moving it to the current workspace."
+        )]
+        focus: bool,
     },
     /// Does nothing except having the side-effect of clearing the list of
     /// windows that were already visited by a sequence of `focus` or
@@ -88,6 +101,9 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
             match_opts,
             command,
         } => focus_or_spawn(match_opts, command),
+        NiriusCmd::MoveToCurrentWorkspace { match_opts, focus } => {
+            move_to_current_workspace(match_opts, *focus)
+        }
         NiriusCmd::ToggleFollowMode => toggle_follow_mode(),
         NiriusCmd::ToggleMark { mark } => {
             toggle_mark(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
@@ -122,7 +138,7 @@ fn get_focused_window() -> Result<niri_ipc::Window, String> {
         Response::FocusedWindow(window) => {
             window.ok_or("No focused window".to_owned())
         }
-        x => Err(format!("Received unexpected reply {:?}", x)),
+        x => Err(format!("Received unexpected reply {x:?}")),
     }
 }
 
@@ -139,10 +155,10 @@ fn toggle_follow_mode() -> Result<String, String> {
             // want to retain the order.
             state.follow_mode_win_ids.remove(index);
         }
-        Ok(format!("Disabled follow mode for window {:?}", focused_win))
+        Ok(format!("Disabled follow mode for window {focused_win:?}"))
     } else {
         state.follow_mode_win_ids.push(focused_win.id);
-        Ok(format!("Enabled follow mode for window {:?}", focused_win))
+        Ok(format!("Enabled follow mode for window {focused_win:?}"))
     }
 }
 
@@ -152,12 +168,11 @@ fn focus_or_spawn(
 ) -> Result<String, String> {
     match focus(match_opts) {
         Err(str) if NO_MATCHING_WINDOW == str => {
-            let r = ipc::query_niri(Request::Action(Action::Spawn {
+            match ipc::query_niri(Request::Action(Action::Spawn {
                 command: command.to_vec(),
-            }))?;
-            match r {
+            }))? {
                 Response::Handled => Ok("Spawned successfully".to_string()),
-                x => Err(format!("Received unexpected reply {:?}", x)),
+                x => Err(format!("Received unexpected reply {x:?}")),
             }
         }
         x => x,
@@ -204,19 +219,19 @@ fn focus(match_opts: &MatchOptions) -> Result<String, String> {
                 Err(NO_MATCHING_WINDOW.to_owned())
             }
         }
-        x => Err(format!("Received unexpected reply {:?}", x)),
+        x => Err(format!("Received unexpected reply {x:?}")),
     }
 }
 
 fn focus_window_by_id(id: u64) -> Result<String, String> {
     match ipc::query_niri(Request::Action(Action::FocusWindow { id }))? {
-        Response::Handled => Ok(format!("Focused window with id {}", id)),
-        x => Err(format!("Received unexpected reply {:?}", x)),
+        Response::Handled => Ok(format!("Focused window with id {id}")),
+        x => Err(format!("Received unexpected reply {x:?}")),
     }
 }
 
 fn window_matches(w: &Window, match_opts: &MatchOptions) -> bool {
-    log::debug!("Matching window {:?}", w);
+    log::debug!("Matching window {w:?}");
     if w.app_id.is_none() && match_opts.app_id.is_some()
         || match_opts.app_id.as_ref().is_some_and(|rx| {
             !Regex::new(rx).unwrap().is_match(w.app_id.as_ref().unwrap())
@@ -238,6 +253,59 @@ fn window_matches(w: &Window, match_opts: &MatchOptions) -> bool {
     true
 }
 
+fn get_focused_workspace() -> Result<Workspace, String> {
+    match ipc::query_niri(Request::Workspaces)? {
+        Response::Workspaces(workspaces) => workspaces
+            .into_iter()
+            .find(|ws| ws.is_focused)
+            .ok_or(String::from("No focused workspace")),
+        x => Err(format!("Received unexpected reply {x:?}")),
+    }
+}
+
+fn move_to_current_workspace(
+    match_opts: &MatchOptions,
+    focus: bool,
+) -> Result<String, String> {
+    let focused_ws = get_focused_workspace()?;
+    match ipc::query_niri(Request::Windows)? {
+        Response::Windows(mut wins) => {
+            wins.retain(|w| {
+                // Only windows which are not on the current workspace already.
+                w.workspace_id.is_none_or(|ws_id| ws_id != focused_ws.id)
+                    && window_matches(w, match_opts)
+            });
+
+            if let Some(win) = wins.first() {
+                let move_result =
+                    move_window_to_workspace(win.id, focused_ws.id, focus);
+                if focus {
+                    focus_window_by_id(win.id)?;
+                }
+                move_result
+            } else {
+                Err(NO_MATCHING_WINDOW.to_owned())
+            }
+        }
+        x => Err(format!("Received unexpected reply {x:?}")),
+    }
+}
+
+fn move_window_to_workspace(
+    window_id: u64,
+    workspace_id: u64,
+    focus: bool,
+) -> Result<String, String> {
+    match ipc::query_niri(Request::Action(Action::MoveWindowToWorkspace {
+        window_id: Some(window_id),
+        reference: niri_ipc::WorkspaceReferenceArg::Id(workspace_id),
+        focus,
+    }))? {
+        Response::Handled => Ok("Moved successfully".to_string()),
+        x => Err(format!("Received unexpected reply {x:?}")),
+    }
+}
+
 fn toggle_mark(mark: String) -> Result<String, String> {
     let focused_win = get_focused_window()?;
     let mut state = STATE.lock().expect("Could not lock mutex.");
@@ -248,10 +316,10 @@ fn toggle_mark(mark: String) -> Result<String, String> {
             // want to retain the order.
             ids.remove(index);
         }
-        Ok(format!("Unset mark for window {:?}", focused_win))
+        Ok(format!("Unset mark for window {focused_win:?}"))
     } else {
         ids.push(focused_win.id);
-        Ok(format!("Set mark for window {:?}", focused_win))
+        Ok(format!("Set mark for window {focused_win:?}"))
     }
 }
 
@@ -312,7 +380,7 @@ fn list_marked(mark: String) -> Result<String, String> {
                 }
                 Ok(str)
             }
-            x => Err(format!("Received unexpected reply {:?}", x)),
+            x => Err(format!("Received unexpected reply {x:?}")),
         }
     } else {
         Err("No such mark.".to_owned())
@@ -335,7 +403,7 @@ fn list_all_marked() -> Result<String, String> {
 
     let mut s = String::new();
     for mark in keys {
-        s.push_str(format!("-> {}:\n", mark).as_str());
+        s.push_str(format!("-> {mark}:\n").as_str());
         match list_marked(mark.to_string()) {
             Ok(marks) => s.push_str(marks.as_str()),
             err @ Err(_) => return err,

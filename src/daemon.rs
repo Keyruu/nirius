@@ -40,11 +40,7 @@ fn process_events() -> std::io::Result<()> {
         while let Ok(event) = read_event() {
             match handle_event(&event) {
                 Ok(msg) => {
-                    log::info!(
-                        "Handled event successfully: {:?} => {}",
-                        event,
-                        msg
-                    )
+                    log::info!("Handled event successfully: {event:?} => {msg}")
                 }
                 Err(_) => todo!(),
             }
@@ -88,18 +84,14 @@ fn serve_client_requests() {
     match std::fs::exists(&socket_path) {
         Ok(true) => match std::fs::remove_file(&socket_path) {
             Ok(()) => log::debug!(
-                "Deleted stale socket {} from previous run.",
-                socket_path
+                "Deleted stale socket {socket_path} from previous run."
             ),
             Err(e) => {
-                panic!(
-                    "Could not delete stale socket {}.\n{:?}",
-                    socket_path, e
-                );
+                panic!("Could not delete stale socket {socket_path}.\n{e:?}");
             }
         },
         Err(err) => {
-            panic!("Error when trying to access {}.\n{:?}", socket_path, err)
+            panic!("Error when trying to access {socket_path}.\n{err:?}")
         }
         _ => (),
     };
@@ -128,7 +120,7 @@ fn serve_client_requests() {
 fn handle_client_request(stream: UnixStream) {
     match serde_json::from_reader::<_, cmds::NiriusCmd>(&stream) {
         Ok(cmd) => {
-            log::debug!("Received command: {:?}", cmd);
+            log::debug!("Received command: {cmd:?}");
             if let Err(err) = stream.shutdown(std::net::Shutdown::Read) {
                 log::error!("Could not shutdown stream for read: {err}")
             }

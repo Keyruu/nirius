@@ -24,7 +24,7 @@ pub fn query_niri(req: Request) -> Result<Response, String> {
             Err(err) => Err(err.to_string()),
         },
         Err(err) => {
-            log::error!("Cannot connect to niri: {:?}", err);
+            log::error!("Cannot connect to niri: {err:?}");
             Err(err.to_string())
         }
     }
