@@ -39,7 +39,7 @@ pub enum NiriusCmd {
         command: Vec<String>,
     },
     /// Move a window matching the given options to the current workspace.
-    /// Only windows of non-active workspaces are considered.  If there is no
+    /// Only windows of unfocused workspaces are considered.  If there is no
     /// such window, exit non-zero.
     MoveToCurrentWorkspace {
         #[clap(flatten)]
@@ -50,6 +50,20 @@ pub enum NiriusCmd {
             help = "Focus the window after moving it to the current workspace."
         )]
         focus: bool,
+    },
+    /// Move a window matching the given options to the current workspace.
+    /// Only windows of unfocused workspaces are considered.  If there is no
+    /// such window, spawn the given command.
+    MoveToCurrentWorkspaceOrSpawn {
+        #[clap(flatten)]
+        match_opts: MatchOptions,
+        #[clap(
+            short = 'f',
+            long,
+            help = "Focus the window after moving it to the current workspace."
+        )]
+        focus: bool,
+        command: Vec<String>,
     },
     /// Does nothing except having the side-effect of clearing the list of
     /// windows that were already visited by a sequence of `focus` or
@@ -104,6 +118,11 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
         NiriusCmd::MoveToCurrentWorkspace { match_opts, focus } => {
             move_to_current_workspace(match_opts, *focus)
         }
+        NiriusCmd::MoveToCurrentWorkspaceOrSpawn {
+            match_opts,
+            focus,
+            command,
+        } => move_to_current_workspace_or_spawn(match_opts, *focus, command),
         NiriusCmd::ToggleFollowMode => toggle_follow_mode(),
         NiriusCmd::ToggleMark { mark } => {
             toggle_mark(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
@@ -288,6 +307,24 @@ fn move_to_current_workspace(
             }
         }
         x => Err(format!("Received unexpected reply {x:?}")),
+    }
+}
+
+fn move_to_current_workspace_or_spawn(
+    match_opts: &MatchOptions,
+    focus: bool,
+    command: &[String],
+) -> Result<String, String> {
+    match move_to_current_workspace(match_opts, focus) {
+        Err(str) if NO_MATCHING_WINDOW == str => {
+            match ipc::query_niri(Request::Action(Action::Spawn {
+                command: command.to_vec(),
+            }))? {
+                Response::Handled => Ok("Spawned successfully".to_string()),
+                x => Err(format!("Received unexpected reply {x:?}")),
+            }
+        }
+        x => x,
     }
 }
 
