@@ -30,6 +30,13 @@ using the `nirius` utility.  The daemon is best started by adding
 - `nop`: Does nothing except having the side-effect of clearing the list of
   already visited windows captured during a sequence of `focus`,
   `focus-or-spawn`, or `focus-marked` commands.
+- `move-to-current-workspace [OPTIONS]`: Moves a matching window from some
+  unfocused workspace to the currently focused workspace.  If the `--focus`
+  flag is given, the moved window also gains focus.  If there is no matching
+  window, exits non-zero.
+- `move-to-current-workspace-or-spawn [OPTIONS] [COMMAND]`: Same behavior as
+  `move-to-current-workspace` except that it spawns the given `COMMAND` if
+  there is no matching window.
 - `toggle-follow-mode`: Enables or disables *follow mode* for the currently
   focused window.  When switching to another workspace, all windows in follow
   mode are moved to that workspace.  (The main use-case for *follow mode* are
