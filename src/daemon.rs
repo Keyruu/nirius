@@ -34,25 +34,49 @@ pub fn run_daemon() {
 fn process_events() -> std::io::Result<()> {
     let mut socket = niri_ipc::socket::Socket::connect()?;
 
-    let reply = socket.send(Request::EventStream)?;
-    if matches!(reply, Ok(Response::Handled)) {
-        let mut read_event = socket.read_events();
-        loop {
-            match read_event() {
-                Ok(event) => match handle_event(&event) {
-                    Ok(msg) => {
-                        log::info!(
-                            "Handled event successfully: {event:?} => {msg}"
-                        )
+    match socket.send(Request::EventStream) {
+        Ok(response) => match response {
+            Ok(Response::Handled) => {
+                let mut read_event = socket.read_events();
+                loop {
+                    match read_event() {
+                        Ok(event) => match handle_event(&event) {
+                            Ok(msg) => {
+                                log::info!(
+                                    "Handled event successfully: {event:?} => {msg}"
+                                )
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Error during event-handling: {e:?}"
+                                )
+                            }
+                        },
+                        Err(err) => {
+                            log::error!("Could not read event: {err:?}")
+                        }
                     }
-                    Err(e) => log::error!("Error during event-handling: {e:?}"),
-                },
-                Err(err) => log::error!("Could not read event: {err:?}"),
+                }
             }
+            Ok(other) => {
+                let msg = format!(
+                    "Unexpected response for Request::EventStream: {other:?}"
+                );
+                log::error!("{msg}");
+                panic!("{msg}")
+            }
+            Err(e) => {
+                let msg = format!("Error when requesting EventStream: {e:?}");
+                log::error!("{msg}");
+                panic!("{msg}")
+            }
+        },
+        Err(e) => {
+            let msg = format!("Could not send Request::EventStream: {e:?}");
+            log::error!("{msg}");
+            panic!("{msg}")
         }
     }
-
-    Ok(())
 }
 
 fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
