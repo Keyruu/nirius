@@ -365,10 +365,10 @@ fn focus_marked(mark: String) -> Result<String, String> {
 
     if let Some(marked_windows) = state.mark_to_win_ids.get(&mark).cloned() {
         // The currently focused window is already visited, too.
-        if let Ok(current_win) = get_focused_window() {
-            if !state.already_focused_win_ids.contains(&current_win.id) {
-                state.already_focused_win_ids.push(current_win.id);
-            }
+        if let Ok(current_win) = get_focused_window()
+            && !state.already_focused_win_ids.contains(&current_win.id)
+        {
+            state.already_focused_win_ids.push(current_win.id);
         }
 
         // If we already visited all of the marked window, start a new
