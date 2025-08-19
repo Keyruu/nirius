@@ -37,12 +37,17 @@ fn process_events() -> std::io::Result<()> {
     let reply = socket.send(Request::EventStream)?;
     if matches!(reply, Ok(Response::Handled)) {
         let mut read_event = socket.read_events();
-        while let Ok(event) = read_event() {
-            match handle_event(&event) {
-                Ok(msg) => {
-                    log::info!("Handled event successfully: {event:?} => {msg}")
-                }
-                Err(_) => todo!(),
+        loop {
+            match read_event() {
+                Ok(event) => match handle_event(&event) {
+                    Ok(msg) => {
+                        log::info!(
+                            "Handled event successfully: {event:?} => {msg}"
+                        )
+                    }
+                    Err(e) => log::error!("Error during event-handling: {e:?}"),
+                },
+                Err(err) => log::error!("Could not read event: {err:?}"),
             }
         }
     }
