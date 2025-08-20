@@ -15,6 +15,7 @@
 
 //! Functions and data structures of the niriusd daemon.
 
+use std::io::ErrorKind;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
 
@@ -53,6 +54,12 @@ fn process_events() -> std::io::Result<()> {
                             }
                         },
                         Err(err) => {
+                            if err.kind() == ErrorKind::UnexpectedEof {
+                                log::error!(
+                                    "Received EOF, niri has quit and so do I. Goodbye!"
+                                );
+                                std::process::exit(0)
+                            }
                             log::error!("Could not read event: {err:?}")
                         }
                     }
