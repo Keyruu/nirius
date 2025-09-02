@@ -371,8 +371,7 @@ fn focus_marked(mark: String) -> Result<String, String> {
             state.already_focused_win_ids.push(current_win.id);
         }
 
-        // If we already visited all of the marked window, start a new
-        // cycle.
+        // If we already visited all of the marked windows, start a new cycle.
         if marked_windows
             .iter()
             .all(|w| state.already_focused_win_ids.contains(w))
