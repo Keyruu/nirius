@@ -102,7 +102,9 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
 
 fn move_follow_mode_windows(workspace_id: u64) -> Result<String, String> {
     let state = STATE.lock().expect("Could not lock mutex");
+    let mut n = 0;
     for id in state.follow_mode_win_ids.iter() {
+        n+=1;
         crate::ipc::query_niri(Request::Action(
             niri_ipc::Action::MoveWindowToWorkspace {
                 window_id: Some(*id),
@@ -111,7 +113,7 @@ fn move_follow_mode_windows(workspace_id: u64) -> Result<String, String> {
             },
         ))?;
     }
-    Ok("Moved".to_string())
+    Ok(format!("Moved {n} follow-mode windows."))
 }
 
 fn serve_client_requests() {
