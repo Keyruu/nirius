@@ -37,7 +37,8 @@ fn init_then_process_events() -> std::io::Result<()> {
     match ipc::query_niri(Request::Windows) {
         Ok(response) => match response {
             Response::Windows(wins) => {
-                let mut state = STATE.lock().expect("Could not lock state.");
+                let mut state =
+                    STATE.write().expect("Could not write() STATE.");
                 log::info!("Initializing state with {} windows.", wins.len());
                 for win in wins {
                     let msg = state.activate_window(win.clone()).unwrap();
@@ -112,15 +113,15 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
             move_follow_mode_windows(*id)
         }
         niri_ipc::Event::WindowOpenedOrChanged { window } => {
-            let mut state = STATE.lock().expect("Could not lock state.");
+            let mut state = STATE.write().expect("Could not write() STATE.");
             state.activate_window(window.clone())
         }
         niri_ipc::Event::WindowClosed { id } => {
-            let mut state = STATE.lock().expect("Could not lock state.");
+            let mut state = STATE.write().expect("Could not write() STATE.");
             state.remove_window(id)
         }
         niri_ipc::Event::WindowFocusChanged { id } => {
-            let mut state = STATE.lock().expect("Could not lock state.");
+            let mut state = STATE.write().expect("Could not write() STATE.");
             state.window_focus_changed(*id)
         }
         _other => Ok("Nothing to do.".to_owned()),
@@ -128,7 +129,7 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
 }
 
 fn move_follow_mode_windows(workspace_id: u64) -> Result<String, String> {
-    let state = STATE.lock().expect("Could not lock mutex");
+    let state = STATE.read().expect("Could not read() STATE.");
     let mut n = 0;
     for id in state.follow_mode_win_ids.iter() {
         n += 1;

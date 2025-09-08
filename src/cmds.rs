@@ -13,8 +13,6 @@
 // You should have received a copy of the GNU General Public License along with
 // this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::{cmp::Ordering, sync::Mutex};
-
 use crate::{ipc, state::STATE};
 use niri_ipc::{Action, Request, Response, Window, Workspace};
 use regex::Regex;
@@ -100,15 +98,9 @@ pub struct MatchOptions {
 }
 
 static DEFAULT_MARK: &str = "__default__";
-static LAST_COMMAND: Mutex<Option<NiriusCmd>> = Mutex::new(None);
 
 pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
-    let mut last_command =
-        LAST_COMMAND.lock().expect("Could not lock LAST_COMMAND.");
-    let clear_focused_win_ids =
-        last_command.as_ref().is_some_and(|lc| lc != &cmd);
-
-    let result = match &cmd {
+    match &cmd {
         NiriusCmd::Nop => Ok("Nothing done".to_string()),
         NiriusCmd::Focus { match_opts } => focus(match_opts),
         NiriusCmd::FocusOrSpawn {
@@ -137,47 +129,38 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
                 list_marked(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
             }
         }
-    };
-
-    if clear_focused_win_ids {
-        STATE
-            .lock()
-            .expect("Could not lock STATE.")
-            .already_focused_win_ids
-            .clear()
     }
-
-    *last_command = Some(cmd.clone());
-
-    result
 }
 
-fn get_focused_window() -> Result<niri_ipc::Window, String> {
-    match ipc::query_niri(Request::FocusedWindow)? {
-        Response::FocusedWindow(window) => {
-            window.ok_or("No focused window".to_owned())
-        }
-        x => Err(format!("Received unexpected reply {x:?}")),
-    }
+fn get_focused_win_id() -> Option<u64> {
+    let state = STATE.read().expect("Could not read() STATE.");
+    state
+        .all_windows
+        .iter()
+        .find(|w| w.is_focused)
+        .map(|w| w.id)
 }
 
 fn toggle_follow_mode() -> Result<String, String> {
-    let focused_win = get_focused_window()?;
-    let mut state = STATE.lock().expect("Could not lock state.");
-    if state.follow_mode_win_ids.contains(&focused_win.id) {
-        if let Some(index) = state
-            .follow_mode_win_ids
-            .iter()
-            .position(|id| *id == focused_win.id)
-        {
-            // swap_remove() would be more efficient but I think we
-            // want to retain the order.
-            state.follow_mode_win_ids.remove(index);
+    if let Some(focused_win_id) = get_focused_win_id() {
+        let mut w_state = STATE.write().expect("Could not write() STATE.");
+        if w_state.follow_mode_win_ids.contains(&focused_win_id) {
+            if let Some(index) = w_state
+                .follow_mode_win_ids
+                .iter()
+                .position(|id| *id == focused_win_id)
+            {
+                // swap_remove() would be more efficient but I think we
+                // want to retain the order.
+                w_state.follow_mode_win_ids.remove(index);
+            }
+            Ok(format!("Disabled follow mode for window {focused_win_id}"))
+        } else {
+            w_state.follow_mode_win_ids.push(focused_win_id);
+            Ok(format!("Enabled follow mode for window {focused_win_id}"))
         }
-        Ok(format!("Disabled follow mode for window {focused_win:?}"))
     } else {
-        state.follow_mode_win_ids.push(focused_win.id);
-        Ok(format!("Enabled follow mode for window {focused_win:?}"))
+        Err("No focused window".to_owned())
     }
 }
 
@@ -199,46 +182,15 @@ fn focus_or_spawn(
 }
 
 fn focus(match_opts: &MatchOptions) -> Result<String, String> {
-    match ipc::query_niri(Request::Windows)? {
-        Response::Windows(mut wins) => {
-            let mut state = STATE.lock().expect("Could not lock mutex");
-            wins.retain(|w| window_matches(w, match_opts));
-            if wins
-                .iter()
-                .all(|w| state.already_focused_win_ids.contains(&w.id))
-            {
-                state.already_focused_win_ids.clear();
-            }
-            wins.sort_by(|a, b| {
-                if a.is_focused {
-                    return Ordering::Greater;
-                }
-                if b.is_focused {
-                    return Ordering::Less;
-                }
-
-                let a_visited = state.already_focused_win_ids.contains(&a.id);
-                let b_visited = state.already_focused_win_ids.contains(&b.id);
-
-                if a_visited && !b_visited {
-                    return Ordering::Greater;
-                }
-                if !a_visited && b_visited {
-                    return Ordering::Less;
-                }
-
-                a.id.cmp(&b.id)
-            });
-            if let Some(win) = wins.first() {
-                if !state.already_focused_win_ids.contains(&win.id) {
-                    state.already_focused_win_ids.push(win.id);
-                }
-                focus_window_by_id(win.id)
-            } else {
-                Err(NO_MATCHING_WINDOW.to_owned())
-            }
-        }
-        x => Err(format!("Received unexpected reply {x:?}")),
+    let state = STATE.read().expect("Could not read() STATE.");
+    if let Some(win) = state
+        .all_windows
+        .iter()
+        .find(|w| window_matches(w, match_opts))
+    {
+        focus_window_by_id(win.id)
+    } else {
+        Err(NO_MATCHING_WINDOW.to_owned())
     }
 }
 
@@ -287,26 +239,20 @@ fn move_to_current_workspace(
     focus: bool,
 ) -> Result<String, String> {
     let focused_ws = get_focused_workspace()?;
-    match ipc::query_niri(Request::Windows)? {
-        Response::Windows(mut wins) => {
-            wins.retain(|w| {
-                // Only windows which are not on the current workspace already.
-                w.workspace_id.is_none_or(|ws_id| ws_id != focused_ws.id)
-                    && window_matches(w, match_opts)
-            });
+    let state = STATE.read().expect("Could not read() STATE");
 
-            if let Some(win) = wins.first() {
-                let move_result =
-                    move_window_to_workspace(win.id, focused_ws.id, focus);
-                if focus {
-                    focus_window_by_id(win.id)?;
-                }
-                move_result
-            } else {
-                Err(NO_MATCHING_WINDOW.to_owned())
-            }
+    if let Some(win) = state.all_windows.iter().find(|w| {
+        w.workspace_id.is_none_or(|ws_id| ws_id != focused_ws.id)
+            && window_matches(w, match_opts)
+    }) {
+        let move_result =
+            move_window_to_workspace(win.id, focused_ws.id, focus);
+        if focus {
+            focus_window_by_id(win.id)?;
         }
-        x => Err(format!("Received unexpected reply {x:?}")),
+        move_result
+    } else {
+        Err(NO_MATCHING_WINDOW.to_owned())
     }
 }
 
@@ -344,47 +290,36 @@ fn move_window_to_workspace(
 }
 
 fn toggle_mark(mark: String) -> Result<String, String> {
-    let focused_win = get_focused_window()?;
-    let mut state = STATE.lock().expect("Could not lock mutex.");
-    let ids = state.mark_to_win_ids.entry(mark).or_default();
-    if ids.contains(&focused_win.id) {
-        if let Some(index) = ids.iter().position(|id| *id == focused_win.id) {
-            // swap_remove() would be more efficient but I think we
-            // want to retain the order.
-            ids.remove(index);
+    if let Some(focused_win_id) = get_focused_win_id() {
+        let mut state = STATE.write().expect("Could not write() STATE.");
+        let ids = state.mark_to_win_ids.entry(mark).or_default();
+        if ids.contains(&focused_win_id) {
+            if let Some(index) = ids.iter().position(|id| *id == focused_win_id)
+            {
+                // swap_remove() would be more efficient but I think we
+                // want to retain the order.
+                ids.remove(index);
+            }
+            Ok(format!("Unset mark for window {focused_win_id:?}"))
+        } else {
+            ids.push(focused_win_id);
+            Ok(format!("Set mark for window {focused_win_id:?}"))
         }
-        Ok(format!("Unset mark for window {focused_win:?}"))
     } else {
-        ids.push(focused_win.id);
-        Ok(format!("Set mark for window {focused_win:?}"))
+        Err("No focused window.".to_owned())
     }
 }
 
 fn focus_marked(mark: String) -> Result<String, String> {
-    let mut state = STATE.lock().expect("Could not lock mutex.");
+    let state = STATE.read().expect("Could not read() STATE.");
 
     if let Some(marked_windows) = state.mark_to_win_ids.get(&mark).cloned() {
-        // The currently focused window is already visited, too.
-        if let Ok(current_win) = get_focused_window()
-            && !state.already_focused_win_ids.contains(&current_win.id)
-        {
-            state.already_focused_win_ids.push(current_win.id);
-        }
-
-        // If we already visited all of the marked windows, start a new cycle.
-        if marked_windows
+        if let Some(win) = state
+            .all_windows
             .iter()
-            .all(|w| state.already_focused_win_ids.contains(w))
+            .find(|w| marked_windows.contains(&w.id))
         {
-            state.already_focused_win_ids.clear();
-        }
-
-        if let Some(win_id) = marked_windows
-            .iter()
-            .find(|id| !state.already_focused_win_ids.contains(id))
-        {
-            state.already_focused_win_ids.push(*win_id);
-            focus_window_by_id(*win_id)
+            focus_window_by_id(win.id)
         } else {
             Err("No marked window.".to_owned())
         }
@@ -394,29 +329,25 @@ fn focus_marked(mark: String) -> Result<String, String> {
 }
 
 fn list_marked(mark: String) -> Result<String, String> {
-    let mut state = STATE.lock().expect("Could not lock state.");
+    let state = STATE.read().expect("Could not read() STATE.");
 
-    if let Some(marked_windows) = state.mark_to_win_ids.get_mut(&mark) {
-        match ipc::query_niri(Request::Windows)? {
-            Response::Windows(wins) => {
-                // Remove marked window ids that don't exist anymore.
-                marked_windows.retain(|mw| wins.iter().any(|w| &w.id == mw));
-                let wins: Vec<&Window> = marked_windows
-                    .iter()
-                    .flat_map(|id| wins.iter().find(|w| &w.id == id))
-                    .collect();
-                let mut str = String::new();
-                for win in wins {
-                    let line = format!(
-                        "id: {}, app-id: {:?}, title: {:?}, on workspace: {:?}",
-                        win.id, win.app_id, win.title, win.workspace_id
-                    );
-                    str.push_str(line.as_str());
-                    str.push('\n');
-                }
-                Ok(str)
+    if let Some(marked_windows) = state.mark_to_win_ids.get(&mark).cloned() {
+        {
+            let wins: Vec<&Window> = state
+                .all_windows
+                .iter()
+                .filter(|w| marked_windows.contains(&w.id))
+                .collect();
+            let mut str = String::new();
+            for win in wins {
+                let line = format!(
+                    "id: {}, app-id: {:?}, title: {:?}, on workspace: {:?}",
+                    win.id, win.app_id, win.title, win.workspace_id
+                );
+                str.push_str(line.as_str());
+                str.push('\n');
             }
-            x => Err(format!("Received unexpected reply {x:?}")),
+            Ok(str)
         }
     } else {
         Err("No such mark.".to_owned())
@@ -425,12 +356,13 @@ fn list_marked(mark: String) -> Result<String, String> {
 
 fn list_all_marked() -> Result<String, String> {
     let keys: Vec<String>;
-    // In a block so that the mutex is unlocked again immediately before we
-    // call list_marked() which will lock again below in the loop.
+    // In a block so that we drop the RwLock before calling list_marked().  Not
+    // strictly needed anymore since we switched from a Mutex to a RwLock, but
+    // anyway.
     {
         keys = STATE
-            .lock()
-            .expect("Could not lock state.")
+            .read()
+            .expect("Could not read() STATE.")
             .mark_to_win_ids
             .keys()
             .cloned()

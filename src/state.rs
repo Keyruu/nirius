@@ -15,14 +15,13 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{LazyLock, Mutex},
+    sync::{LazyLock, RwLock},
 };
 
 use niri_ipc::Window;
 
 pub struct State {
     pub all_windows: VecDeque<Window>,
-    pub already_focused_win_ids: Vec<u64>,
     pub follow_mode_win_ids: Vec<u64>,
     pub mark_to_win_ids: HashMap<String, Vec<u64>>,
 }
@@ -50,7 +49,6 @@ impl State {
 
     pub fn remove_window(&mut self, id: &u64) -> Result<String, String> {
         self.all_windows.retain(|w| w.id != *id);
-        self.already_focused_win_ids.retain(|i| i != id);
         self.follow_mode_win_ids.retain(|i| i != id);
         for v in self.mark_to_win_ids.values_mut() {
             v.retain(|i| i != id);
@@ -68,15 +66,23 @@ impl State {
         for win in self.all_windows.iter_mut() {
             win.is_focused = opt_id.is_some_and(|id| win.id == id)
         }
-        Ok("Updated focus.".to_string())
+        if let Some(idx) = self.all_windows.iter().position(|w| w.is_focused) {
+            if let Some(win) = self.all_windows.remove(idx) {
+                self.all_windows.push_back(win);
+                Ok("Updated focus.".to_string())
+            } else {
+                Err(format!("Could not remove window at index {idx}."))
+            }
+        } else {
+            Ok("Updated focus (no window is focused).".to_string())
+        }
     }
 }
 
-pub static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| {
-    Mutex::new(State {
+pub static STATE: LazyLock<RwLock<State>> = LazyLock::new(|| {
+    RwLock::new(State {
         all_windows: VecDeque::new(),
         follow_mode_win_ids: vec![],
-        already_focused_win_ids: vec![],
         mark_to_win_ids: HashMap::new(),
     })
 });
