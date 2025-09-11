@@ -27,9 +27,6 @@ using the `nirius` utility.  The daemon is best started by adding
 - `list-marked [MARK]`: Lists all windows marked with `MARK`, or the default
   mark if not given, on stdout.  If the `--all` flag is given, list all windows
   of all marks.
-- `nop`: Does nothing except having the side-effect of clearing the list of
-  already visited windows captured during a sequence of `focus`,
-  `focus-or-spawn`, or `focus-marked` commands.
 - `move-to-current-workspace [OPTIONS]`: Moves a matching window from some
   unfocused workspace to the currently focused workspace.  If the `--focus`
   flag is given, the moved window also gains focus.  If there is no matching

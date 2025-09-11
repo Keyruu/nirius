@@ -63,10 +63,6 @@ pub enum NiriusCmd {
         focus: bool,
         command: Vec<String>,
     },
-    /// Does nothing except having the side-effect of clearing the list of
-    /// windows that were already visited by a sequence of `focus` or
-    /// `focus-or-spawn` commands.
-    Nop,
     /// Enables or disables follow-mode for the currently focused window.  A
     /// window in follow-mode moves automatically to whatever workspace that
     /// receives focus.
@@ -101,7 +97,6 @@ static DEFAULT_MARK: &str = "__default__";
 
 pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
     match &cmd {
-        NiriusCmd::Nop => Ok("Nothing done".to_string()),
         NiriusCmd::Focus { match_opts } => focus(match_opts),
         NiriusCmd::FocusOrSpawn {
             match_opts,
