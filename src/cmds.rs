@@ -14,7 +14,7 @@
 // this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{ipc, state::STATE};
-use niri_ipc::{Action, Request, Response, Window, Workspace};
+use niri_ipc::{Action, Request, Response, Window, WorkspaceReferenceArg};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +82,19 @@ pub enum NiriusCmd {
         #[clap(short = 'a', long, help = "List all marks with their windows")]
         all: bool,
     },
+    /// Toggles the scratchpad state of the current window.
+    ///
+    /// If it's no scratchpad window currently, makes it foating (if it's not
+    /// already) and moves it to the scratchpad workspace (the bottom-most
+    /// workspace).
+    ///
+    /// If it's already a scratchpad window, removes it from there, i.e., from
+    /// then on, it's just a normal window.
+    ScratchpadToggle,
+    /// Shows a window from the scratchpad or moves it back to the scratchpad
+    /// if the current window is a scratchpad window.  Repeated invocations
+    /// cycle through all scratchpad windows.
+    ScratchpadShow,
 }
 
 #[derive(clap::Parser, PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
@@ -124,21 +137,14 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
                 list_marked(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
             }
         }
+        NiriusCmd::ScratchpadToggle => scratchpad_toggle(),
+        NiriusCmd::ScratchpadShow => scratchpad_show(),
     }
 }
 
-fn get_focused_win_id() -> Option<u64> {
-    let state = STATE.read().expect("Could not read() STATE.");
-    state
-        .all_windows
-        .iter()
-        .find(|w| w.is_focused)
-        .map(|w| w.id)
-}
-
 fn toggle_follow_mode() -> Result<String, String> {
-    if let Some(focused_win_id) = get_focused_win_id() {
-        let mut w_state = STATE.write().expect("Could not write() STATE.");
+    let mut w_state = STATE.write().expect("Could not write() STATE.");
+    if let Some(focused_win_id) = w_state.get_focused_win_id() {
         if w_state.follow_mode_win_ids.contains(&focused_win_id) {
             if let Some(index) = w_state
                 .follow_mode_win_ids
@@ -219,29 +225,23 @@ fn window_matches(w: &Window, match_opts: &MatchOptions) -> bool {
     true
 }
 
-fn get_focused_workspace() -> Result<Workspace, String> {
-    match ipc::query_niri(Request::Workspaces)? {
-        Response::Workspaces(workspaces) => workspaces
-            .into_iter()
-            .find(|ws| ws.is_focused)
-            .ok_or(String::from("No focused workspace")),
-        x => Err(format!("Received unexpected reply {x:?}")),
-    }
-}
-
 fn move_to_current_workspace(
     match_opts: &MatchOptions,
     focus: bool,
 ) -> Result<String, String> {
-    let focused_ws = get_focused_workspace()?;
     let state = STATE.read().expect("Could not read() STATE");
-
+    let focused_ws_id = state
+        .get_focused_workspace_id()
+        .ok_or("No focused workspace.")?;
     if let Some(win) = state.all_windows.iter().find(|w| {
-        w.workspace_id.is_none_or(|ws_id| ws_id != focused_ws.id)
+        w.workspace_id.is_none_or(|ws_id| ws_id != focused_ws_id)
             && window_matches(w, match_opts)
     }) {
-        let move_result =
-            move_window_to_workspace(win.id, focused_ws.id, focus);
+        let move_result = move_window_to_workspace(
+            win.id,
+            niri_ipc::WorkspaceReferenceArg::Id(focused_ws_id),
+            focus,
+        );
         if focus {
             focus_window_by_id(win.id)?;
         }
@@ -269,14 +269,14 @@ fn move_to_current_workspace_or_spawn(
     }
 }
 
-fn move_window_to_workspace(
+pub fn move_window_to_workspace(
     window_id: u64,
-    workspace_id: u64,
+    workspace_ref: niri_ipc::WorkspaceReferenceArg,
     focus: bool,
 ) -> Result<String, String> {
     match ipc::query_niri(Request::Action(Action::MoveWindowToWorkspace {
         window_id: Some(window_id),
-        reference: niri_ipc::WorkspaceReferenceArg::Id(workspace_id),
+        reference: workspace_ref,
         focus,
     }))? {
         Response::Handled => Ok("Moved successfully".to_string()),
@@ -285,8 +285,8 @@ fn move_window_to_workspace(
 }
 
 fn toggle_mark(mark: String) -> Result<String, String> {
-    if let Some(focused_win_id) = get_focused_win_id() {
-        let mut state = STATE.write().expect("Could not write() STATE.");
+    let mut state = STATE.write().expect("Could not write() STATE.");
+    if let Some(focused_win_id) = state.get_focused_win_id() {
         let ids = state.mark_to_win_ids.entry(mark).or_default();
         if ids.contains(&focused_win_id) {
             if let Some(index) = ids.iter().position(|id| *id == focused_win_id)
@@ -373,4 +373,82 @@ fn list_all_marked() -> Result<String, String> {
         }
     }
     Ok(s)
+}
+
+fn scratchpad_toggle() -> Result<String, String> {
+    let mut state = STATE.write().expect("Could not write() STATE.");
+    if let Some(id) = state.get_focused_win_id() {
+        if state.scratchpad_win_ids.contains(&id) {
+            state.scratchpad_win_ids.retain(|wid| *wid != id);
+            Ok(format!("Removed window {id} from scratchpad."))
+        } else {
+            state.scratchpad_win_ids.push(id);
+            drop(state);
+            scratchpad_move()
+        }
+    } else {
+        Err("No focused window.".to_owned())
+    }
+}
+
+pub(crate) fn scratchpad_move() -> Result<String, String> {
+    let state = STATE.read().expect("Could not read() STATE.");
+    let idx = state
+        .all_workspaces
+        .iter()
+        .map(|ws| ws.idx)
+        .max()
+        .unwrap_or(255);
+    let mut i = 0;
+    for w in state
+        .all_windows
+        .iter()
+        .filter(|w| state.scratchpad_win_ids.contains(&w.id))
+    {
+        if !w.is_floating {
+            ipc::query_niri(Request::Action(Action::ToggleWindowFloating {
+                id: Some(w.id),
+            }))?;
+        }
+        move_window_to_workspace(
+            w.id,
+            niri_ipc::WorkspaceReferenceArg::Index(idx),
+            false,
+        )?;
+        i += 1;
+    }
+    Ok(format!(
+        "Moved {i} scratchpad windows to workspace at index {idx}."
+    ))
+}
+
+fn scratchpad_show() -> Result<String, String> {
+    let state = STATE.read().expect("Could not read STATE.");
+    let opt_win_id = state.get_focused_win_id();
+    if opt_win_id
+        .as_ref()
+        .is_some_and(|w| state.scratchpad_win_ids.contains(w))
+    {
+        scratchpad_move()
+    } else {
+        let focused_ws_id = state
+            .get_focused_workspace_id()
+            .ok_or("No focused workspace.")?;
+
+        if let Some(id) = state
+            .all_windows
+            .iter()
+            .find(|w| state.scratchpad_win_ids.contains(&w.id))
+            .map(|w| w.id)
+        {
+            move_window_to_workspace(
+                id,
+                WorkspaceReferenceArg::Id(focused_ws_id),
+                true,
+            )?;
+            focus_window_by_id(id)
+        } else {
+            Err("No window in the scratchpad.".to_owned())
+        }
+    }
 }

@@ -12,12 +12,38 @@ using the `nirius` utility.  The daemon is best started by adding
 
 ## <a id="installation">Commands</a>
 
+### Focusing matching windows
+
+The focus commands are shortcuts for quickly focusing (or even spawning) the
+apps you need all the time.
+
 - `focus [OPTIONS]`: Focuses a matching window if there is one, otherwise exits
   non-zero.  What windows match is specified using the options `--app-id`
   (`-a`) and `--title` (`-t`), both regular expressions.  If there are multiple
   matching windows, the command cycles through them.
 - `focus-or-spawn [OPTIONS] [COMMAND]...`: Same behavior as `focus` except that
   it spawns `COMMAND` instead of exiting non-zero if no matching window exists.
+
+### Moving matching windows to the current workspace
+
+Where the focusing commands switch to matching windows where they are, maybe on
+a different workspace on a different output, the below commands move matching
+windows from elsewhere to the current workspace.
+
+- `move-to-current-workspace [OPTIONS]`: Moves a matching window (same options
+  as `focus`) from some unfocused workspace to the currently focused workspace.
+  If the `--focus` flag is given, the moved window also gains focus.  If there
+  is no matching window, exits non-zero.
+- `move-to-current-workspace-or-spawn [OPTIONS] [COMMAND]`: Same behavior as
+  `move-to-current-workspace` except that it spawns the given `COMMAND` if
+  there is no matching window.
+
+### Categorizing windows with marks
+
+The below commands allow for annotating windows with different marks (or
+labels) and provide means to quickly cycle through all windows having the same
+mark.
+
 - `toggle-mark [MARK]`: Marks or unmarks a window with the given or default
   mark (which is `__default__`).  Marked windows can be focused using
   `focus-marked`.
@@ -27,17 +53,35 @@ using the `nirius` utility.  The daemon is best started by adding
 - `list-marked [MARK]`: Lists all windows marked with `MARK`, or the default
   mark if not given, on stdout.  If the `--all` flag is given, list all windows
   of all marks.
-- `move-to-current-workspace [OPTIONS]`: Moves a matching window from some
-  unfocused workspace to the currently focused workspace.  If the `--focus`
-  flag is given, the moved window also gains focus.  If there is no matching
-  window, exits non-zero.
-- `move-to-current-workspace-or-spawn [OPTIONS] [COMMAND]`: Same behavior as
-  `move-to-current-workspace` except that it spawns the given `COMMAND` if
-  there is no matching window.
+
+### Follow-mode
+
+Windows in follow-mode follow you when switching from one workspace to another
+one.  The primary intended use-case are floating music or video player windows.
+
 - `toggle-follow-mode`: Enables or disables *follow mode* for the currently
   focused window.  When switching to another workspace, all windows in follow
-  mode are moved to that workspace.  (The main use-case for *follow mode* are
-  floating video player windows, e.g., firefox Picture-in-Picture windows.)
+  mode are moved to that workspace.
+
+### The scratchpad
+
+Users coming to niri from i3/sway probably know the "scratchpad" which is a
+kind of hidden workspace there where you can send windows to which you need
+often but don't want to have next to you all the time, e.g., a terminal which
+you just need for executing git commands every now and then.  You a command
+which shows one scratchpad window as floating window on top of your tiled
+windows and moves it back when invoked again.  The below commands implement the
+same for niri.  The difference is that niri has no hidden workspace, so the
+scratchpad is actually the bottom-most non-empty workspace.  When you focus
+that, nirius will move the scratchpad windows to the workspace below.
+
+- `scratchpad-toggle`: Moves the current window to the scratchpad if it's not a
+  scratchpad window already.  If it is, removes it from the scratchpad, i.e.,
+  it's just a normal floating window afterwards.  Making a scratchpad window
+  tiled again also removes its scratchpad state implicitly.
+- `scratchpad-show`: Shows a window from the scratchpad.  If a scratchpad
+  window is already shown, moves it back to the scratchpad.  Repeated
+  invocations cycle though all scratchpad windows.
 
 ### <a id="installation">Installation</a>
 

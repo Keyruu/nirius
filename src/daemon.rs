@@ -110,10 +110,33 @@ fn process_events() -> std::io::Result<()> {
 fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
     match event {
         niri_ipc::Event::WorkspaceActivated { id, focused } if *focused => {
-            move_follow_mode_windows(*id)
+            {
+                let mut state =
+                    STATE.write().expect("Could not write() STATE.");
+                state.workspace_focused(*id);
+            }
+
+            let state = STATE.read().expect("Could not read() STATE.");
+            if state.is_bottom_workspace(*id) {
+                cmds::scratchpad_move()?;
+            }
+
+            let mut i = 0;
+            for w in &state.follow_mode_win_ids {
+                cmds::move_window_to_workspace(
+                    *w,
+                    WorkspaceReferenceArg::Id(*id),
+                    false,
+                )?;
+                i += 1;
+            }
+            Ok(format!("Moved {i} follow-mode windows."))
         }
         niri_ipc::Event::WindowOpenedOrChanged { window } => {
             let mut state = STATE.write().expect("Could not write() STATE.");
+            if !window.is_floating {
+                state.scratchpad_win_ids.retain(|w| *w != window.id)
+            }
             state.activate_window(window.clone())
         }
         niri_ipc::Event::WindowClosed { id } => {
@@ -124,24 +147,12 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
             let mut state = STATE.write().expect("Could not write() STATE.");
             state.window_focus_changed(*id)
         }
+        niri_ipc::Event::WorkspacesChanged { workspaces } => {
+            let mut state = STATE.write().expect("Could not write() STATE.");
+            state.workspaces_changed(workspaces.clone())
+        }
         _other => Ok("Nothing to do.".to_owned()),
     }
-}
-
-fn move_follow_mode_windows(workspace_id: u64) -> Result<String, String> {
-    let state = STATE.read().expect("Could not read() STATE.");
-    let mut n = 0;
-    for id in state.follow_mode_win_ids.iter() {
-        n += 1;
-        crate::ipc::query_niri(Request::Action(
-            niri_ipc::Action::MoveWindowToWorkspace {
-                window_id: Some(*id),
-                reference: WorkspaceReferenceArg::Id(workspace_id),
-                focus: true,
-            },
-        ))?;
-    }
-    Ok(format!("Moved {n} follow-mode windows."))
 }
 
 fn serve_client_requests() {
