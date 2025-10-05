@@ -49,6 +49,13 @@ impl State {
         } else {
             format!("Activated window {}.", &win.id)
         };
+
+        // Whatever window had focus before now hasn't anymore.  The new window
+        // has.
+        self.all_windows
+            .iter_mut()
+            .for_each(|w| w.is_focused = false);
+
         self.all_windows.push_back(win);
         Ok(msg)
     }
