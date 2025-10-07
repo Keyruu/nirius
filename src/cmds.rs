@@ -393,12 +393,19 @@ fn scratchpad_toggle() -> Result<String, String> {
 
 pub(crate) fn scratchpad_move() -> Result<String, String> {
     let state = STATE.read().expect("Could not read() STATE.");
-    let idx = state
+    let output = state
         .all_workspaces
         .iter()
-        .map(|ws| ws.idx)
-        .max()
-        .unwrap_or(255);
+        .find(|ws| ws.is_focused == true)
+        .map(|ws| ws.output.clone())
+        .expect("No workspace is focused.");
+    let ws_id = state
+        .all_workspaces
+        .iter()
+        .filter(|ws| ws.output == output)
+        .max_by(|a, b| a.idx.cmp(&b.idx))
+        .map(|ws| ws.id)
+        .expect("No max workspace.");
     let mut i = 0;
     for w in state
         .all_windows
@@ -412,13 +419,13 @@ pub(crate) fn scratchpad_move() -> Result<String, String> {
         }
         move_window_to_workspace(
             w.id,
-            niri_ipc::WorkspaceReferenceArg::Index(idx),
+            niri_ipc::WorkspaceReferenceArg::Id(ws_id),
             false,
         )?;
         i += 1;
     }
     Ok(format!(
-        "Moved {i} scratchpad windows to workspace at index {idx}."
+        "Moved {i} scratchpad windows to workspace with id {ws_id}."
     ))
 }
 

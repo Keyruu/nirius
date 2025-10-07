@@ -117,8 +117,10 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
             }
 
             let state = STATE.read().expect("Could not read() STATE.");
+            let mut str = String::new();
             if state.is_bottom_workspace(*id) {
-                cmds::scratchpad_move()?;
+                let msg = cmds::scratchpad_move()?;
+                str += &msg;
             }
 
             let mut i = 0;
@@ -130,7 +132,15 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
                 )?;
                 i += 1;
             }
-            Ok(format!("Moved {i} follow-mode windows."))
+            if i > 0 {
+                str += &format!("Moved {i} follow-mode windows");
+            }
+
+            if str.is_empty() {
+                Ok("Nothing needed to be done.".to_owned())
+            } else {
+                Ok(str)
+            }
         }
         niri_ipc::Event::WindowOpenedOrChanged { window } => {
             let mut state = STATE.write().expect("Could not write() STATE.");
