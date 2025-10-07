@@ -33,31 +33,29 @@ impl State {
         self.all_windows.iter().find(|w| w.is_focused).map(|w| w.id)
     }
 
-    pub fn activate_window(&mut self, win: Window) -> Result<String, String> {
-        let mut new_win = true;
+    pub fn register_window(&mut self, win: Window) -> Result<String, String> {
         if let Some(idx) = self.all_windows.iter().position(|w| w.id == win.id)
         {
-            self.all_windows.remove(idx);
-            new_win = false;
-        }
-        let msg = if new_win {
-            format!(
+            // An existing window which changed in some way.
+            if win.is_focused {
+                // Whatever window had focus before now hasn't anymore.
+                self.all_windows
+                    .iter_mut()
+                    .for_each(|w| w.is_focused = false);
+            }
+
+            let ret = Ok(format!("Updated window {}.", &win.id));
+            self.all_windows[idx] = win;
+            ret
+        } else {
+            let ret = Ok(format!(
                 "Registered window {}. Currently managing {} windows.",
                 &win.id,
                 self.all_windows.len() + 1
-            )
-        } else {
-            format!("Activated window {}.", &win.id)
-        };
-
-        // Whatever window had focus before now hasn't anymore.  The new window
-        // has.
-        self.all_windows
-            .iter_mut()
-            .for_each(|w| w.is_focused = false);
-
-        self.all_windows.push_back(win);
-        Ok(msg)
+            ));
+            self.all_windows.push_back(win);
+            ret
+        }
     }
 
     pub fn remove_window(&mut self, id: &u64) -> Result<String, String> {
@@ -77,18 +75,29 @@ impl State {
         &mut self,
         opt_id: Option<u64>,
     ) -> Result<String, String> {
-        for win in self.all_windows.iter_mut() {
-            win.is_focused = opt_id.is_some_and(|id| win.id == id)
-        }
-        if let Some(idx) = self.all_windows.iter().position(|w| w.is_focused) {
-            if let Some(win) = self.all_windows.remove(idx) {
-                self.all_windows.push_back(win);
-                Ok("Updated focus.".to_string())
+        if let Some(id) = opt_id {
+            for win in self.all_windows.iter_mut() {
+                win.is_focused = win.id == id;
+            }
+            if let Some(idx) =
+                self.all_windows.iter().position(|w| w.is_focused)
+            {
+                if let Some(win) = self.all_windows.remove(idx) {
+                    let ret =
+                        Ok(format!("Updated focus to window {}.", win.id));
+                    self.all_windows.push_back(win);
+                    ret
+                } else {
+                    Err(format!("Could not remove window at index {idx}."))
+                }
             } else {
-                Err(format!("Could not remove window at index {idx}."))
+                Ok("Updated focus (no window is focused).".to_string())
             }
         } else {
-            Ok("Updated focus (no window is focused).".to_string())
+            self.all_windows
+                .iter_mut()
+                .for_each(|w| w.is_focused = false);
+            Ok("No window has focus anymore.".to_owned())
         }
     }
 

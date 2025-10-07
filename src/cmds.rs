@@ -396,7 +396,7 @@ pub(crate) fn scratchpad_move() -> Result<String, String> {
     let output = state
         .all_workspaces
         .iter()
-        .find(|ws| ws.is_focused == true)
+        .find(|ws| ws.is_focused)
         .map(|ws| ws.output.clone())
         .expect("No workspace is focused.");
     let ws_id = state

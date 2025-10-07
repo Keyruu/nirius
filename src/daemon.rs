@@ -41,7 +41,7 @@ fn init_then_process_events() -> std::io::Result<()> {
                     STATE.write().expect("Could not write() STATE.");
                 log::info!("Initializing state with {} windows.", wins.len());
                 for win in wins {
-                    let msg = state.activate_window(win.clone()).unwrap();
+                    let msg = state.register_window(win.clone()).unwrap();
                     log::info!("{}", msg);
                 }
             }
@@ -119,8 +119,7 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
             let state = STATE.read().expect("Could not read() STATE.");
             let mut str = String::new();
             if state.is_bottom_workspace(*id) {
-                let msg = cmds::scratchpad_move()?;
-                str += &msg;
+                str += &cmds::scratchpad_move()?;
             }
 
             let mut i = 0;
@@ -147,7 +146,7 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
             if !window.is_floating {
                 state.scratchpad_win_ids.retain(|w| *w != window.id)
             }
-            state.activate_window(window.clone())
+            state.register_window(window.clone())
         }
         niri_ipc::Event::WindowClosed { id } => {
             let mut state = STATE.write().expect("Could not write() STATE.");
