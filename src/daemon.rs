@@ -118,7 +118,7 @@ fn handle_event(event: &niri_ipc::Event) -> Result<String, String> {
 
             let state = STATE.read().expect("Could not read() STATE.");
             let mut str = String::new();
-            if state.is_bottom_workspace(*id) {
+            if state.is_bottom_workspace_focused() {
                 str += &cmds::scratchpad_move()?;
             }
 

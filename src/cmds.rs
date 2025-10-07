@@ -393,40 +393,40 @@ fn scratchpad_toggle() -> Result<String, String> {
 
 pub(crate) fn scratchpad_move() -> Result<String, String> {
     let state = STATE.read().expect("Could not read() STATE.");
-    let output = state
-        .all_workspaces
-        .iter()
-        .find(|ws| ws.is_focused)
-        .map(|ws| ws.output.clone())
-        .expect("No workspace is focused.");
-    let ws_id = state
-        .all_workspaces
-        .iter()
-        .filter(|ws| ws.output == output)
-        .max_by(|a, b| a.idx.cmp(&b.idx))
-        .map(|ws| ws.id)
-        .expect("No max workspace.");
-    let mut i = 0;
-    for w in state
-        .all_windows
-        .iter()
-        .filter(|w| state.scratchpad_win_ids.contains(&w.id))
-    {
-        if !w.is_floating {
-            ipc::query_niri(Request::Action(Action::ToggleWindowFloating {
-                id: Some(w.id),
-            }))?;
-        }
-        move_window_to_workspace(
-            w.id,
-            niri_ipc::WorkspaceReferenceArg::Id(ws_id),
-            false,
-        )?;
-        i += 1;
+    if state.scratchpad_win_ids.is_empty() {
+        return Ok("No scratchpad windows to move.".to_owned());
     }
-    Ok(format!(
-        "Moved {i} scratchpad windows to workspace with id {ws_id}."
-    ))
+    let output = state
+        .get_focused_workspace()
+        .and_then(|ws| ws.output.as_ref())
+        .ok_or(String::from("No focused output."))?;
+    if let Some((ws_id, _)) =
+        state.get_bottom_workspace_id_and_idx_of_output(output)
+    {
+        let mut i = 0;
+        for w in state
+            .all_windows
+            .iter()
+            .filter(|w| state.scratchpad_win_ids.contains(&w.id))
+        {
+            if !w.is_floating {
+                ipc::query_niri(Request::Action(
+                    Action::ToggleWindowFloating { id: Some(w.id) },
+                ))?;
+            }
+            move_window_to_workspace(
+                w.id,
+                niri_ipc::WorkspaceReferenceArg::Id(ws_id),
+                false,
+            )?;
+            i += 1;
+        }
+        Ok(format!(
+            "Moved {i} scratchpad windows to workspace with id {ws_id}."
+        ))
+    } else {
+        Err("Can't move scratchpad windows. No focused workspace.".to_owned())
+    }
 }
 
 fn scratchpad_show() -> Result<String, String> {

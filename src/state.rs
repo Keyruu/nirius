@@ -101,13 +101,6 @@ impl State {
         }
     }
 
-    pub fn get_focused_workspace_id(&self) -> Option<u64> {
-        self.all_workspaces
-            .iter()
-            .find(|ws| ws.is_focused)
-            .map(|ws| ws.id)
-    }
-
     pub fn workspaces_changed(
         &mut self,
         workspaces: Vec<Workspace>,
@@ -122,22 +115,38 @@ impl State {
         }
     }
 
-    pub fn is_bottom_workspace(&self, ws_id: u64) -> bool {
-        if let Some(ws) = self.all_workspaces.iter().find(|ws| ws.id == ws_id) {
-            // It's the bottom workspace if the max index of all workspaces on the
-            // same output is this workspace's index + 1 because there is always
-            // one empty workspace at the bottom.
-            ws.idx + 1
-                == self
-                    .all_workspaces
-                    .iter()
-                    .filter(|ws2| ws2.output == ws.output)
-                    .map(|ws2| ws2.idx)
-                    .max()
-                    .unwrap_or(ws.idx + 1)
+    pub fn get_focused_workspace(&self) -> Option<&Workspace> {
+        self.all_workspaces.iter().find(|ws| ws.is_focused)
+    }
+
+    pub fn get_focused_workspace_id(&self) -> Option<u64> {
+        self.get_focused_workspace().map(|ws| ws.id)
+    }
+
+    pub fn get_bottom_workspace_id_and_idx_of_output(
+        &self,
+        output: &str,
+    ) -> Option<(u64, u8)> {
+        self.all_workspaces
+            .iter()
+            .filter(|ws| ws.output.as_ref().is_some_and(|o| o == output))
+            .max_by(|a, b| a.idx.cmp(&b.idx))
+            .map(|ws| (ws.id, ws.idx))
+    }
+
+    pub fn is_bottom_workspace_focused(&self) -> bool {
+        if let Some(ws) = self.get_focused_workspace() {
+            let (_, ws_idx) = self
+                .get_bottom_workspace_id_and_idx_of_output(
+                    ws.output.as_ref().expect("Workspace without output."),
+                )
+                .expect("No bottom but a focused workspace.");
+            // It's the bottom workspace if the max index of all workspaces on
+            // the same output is this workspace's index + 1 because there is
+            // always one empty workspace at the bottom.
+            ws.idx + 1 == ws_idx
         } else {
-            // Well, this should not happen, but better move one time too often...
-            true
+            false
         }
     }
 }
