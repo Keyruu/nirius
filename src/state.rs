@@ -26,6 +26,7 @@ pub struct State {
     pub follow_mode_win_ids: Vec<u64>,
     pub scratchpad_win_ids: Vec<u64>,
     pub mark_to_win_ids: HashMap<String, Vec<u64>>,
+    pub focus_history: VecDeque<u64>,
 }
 
 impl State {
@@ -33,21 +34,41 @@ impl State {
         self.all_windows.iter().find(|w| w.is_focused).map(|w| w.id)
     }
 
+    pub fn get_last_focused_matching<F>(&self, predicate: F) -> Option<u64>
+    where
+        F: Fn(&Window) -> bool,
+    {
+        for &win_id in self.focus_history.iter().rev() {
+            if let Some(win) = self.all_windows.iter().find(|w| w.id == win_id) {
+                if predicate(win) {
+                    return Some(win_id);
+                }
+            }
+        }
+        None
+    }
+
     pub fn register_window(&mut self, win: Window) -> Result<String, String> {
         if let Some(idx) = self.all_windows.iter().position(|w| w.id == win.id)
         {
-            // An existing window which changed in some way.
             if win.is_focused {
-                // Whatever window had focus before now hasn't anymore.
                 self.all_windows
                     .iter_mut()
                     .for_each(|w| w.is_focused = false);
+
+                self.focus_history.retain(|&id| id != win.id);
+                self.focus_history.push_back(win.id);
             }
 
             let ret = Ok(format!("Updated window {}.", &win.id));
             self.all_windows[idx] = win;
             ret
         } else {
+            if win.is_focused {
+                self.focus_history.retain(|&id| id != win.id);
+                self.focus_history.push_back(win.id);
+            }
+
             let ret = Ok(format!(
                 "Registered window {}. Currently managing {} windows.",
                 &win.id,
@@ -62,6 +83,7 @@ impl State {
         self.all_windows.retain(|w| w.id != *id);
         self.follow_mode_win_ids.retain(|i| i != id);
         self.scratchpad_win_ids.retain(|i| i != id);
+        self.focus_history.retain(|i| i != id);
         for v in self.mark_to_win_ids.values_mut() {
             v.retain(|i| i != id);
         }
@@ -76,6 +98,9 @@ impl State {
         opt_id: Option<u64>,
     ) -> Result<String, String> {
         if let Some(id) = opt_id {
+            self.focus_history.retain(|&win_id| win_id != id);
+            self.focus_history.push_back(id);
+
             for win in self.all_windows.iter_mut() {
                 win.is_focused = win.id == id;
             }
@@ -158,5 +183,6 @@ pub static STATE: LazyLock<RwLock<State>> = LazyLock::new(|| {
         follow_mode_win_ids: vec![],
         scratchpad_win_ids: vec![],
         mark_to_win_ids: HashMap::new(),
+        focus_history: VecDeque::new(),
     })
 });

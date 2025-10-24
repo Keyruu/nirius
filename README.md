@@ -1,5 +1,10 @@
 # Nirius: utility commands for the niri wayland compositor
 
+> **Note:** This is a fork of [~tsdh/nirius](https://git.sr.ht/~tsdh/nirius) with additional features.
+>
+> **Added features:**
+> - Focus history tracking: The `focus` and `focus-or-spawn` commands now prioritize the most recently focused matching window instead of cycling through windows arbitrarily.
+
 [![builds.sr.ht status](https://builds.sr.ht/~tsdh/nirius.svg)](https://builds.sr.ht/~tsdh/nirius?)
 [![License GPL 3 or later](https://img.shields.io/crates/l/nirius.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![dependency status](https://deps.rs/repo/sourcehut/~tsdh/nirius/status.svg)](https://deps.rs/repo/sourcehut/~tsdh/nirius)
