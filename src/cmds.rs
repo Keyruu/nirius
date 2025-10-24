@@ -191,21 +191,34 @@ fn focus_or_spawn(
 
 fn focus(match_opts: &MatchOptions) -> Result<String, String> {
     let state = STATE.read().expect("Could not read() STATE.");
+    let currently_focused = state.get_focused_win_id();
 
     // Try to find the last focused matching window from focus history
-    if let Some(win_id) = state.get_last_focused_matching(|w| window_matches(w, match_opts)) {
+    // Skip the currently focused window to enable cycling behavior
+    if let Some(win_id) = state.get_last_focused_matching(|w| {
+        window_matches(w, match_opts) && Some(w.id) != currently_focused
+    }) {
         focus_window_by_id(win_id)
     } else {
-        // Fallback: if no match in focus history, find any matching window
+        // Fallback: if no match in focus history (or only match is current), find any matching window
         // This handles newly spawned windows that haven't been focused yet
         if let Some(win) = state
             .all_windows
             .iter()
-            .find(|w| window_matches(w, match_opts))
+            .find(|w| window_matches(w, match_opts) && Some(w.id) != currently_focused)
         {
             focus_window_by_id(win.id)
         } else {
-            Err(NO_MATCHING_WINDOW.to_owned())
+            // If the only matching window is currently focused, stay on it
+            if let Some(win) = state
+                .all_windows
+                .iter()
+                .find(|w| window_matches(w, match_opts))
+            {
+                focus_window_by_id(win.id)
+            } else {
+                Err(NO_MATCHING_WINDOW.to_owned())
+            }
         }
     }
 }
