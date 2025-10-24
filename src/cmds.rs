@@ -193,33 +193,39 @@ fn focus(match_opts: &MatchOptions) -> Result<String, String> {
     let state = STATE.read().expect("Could not read() STATE.");
     let currently_focused = state.get_focused_win_id();
 
-    // Try to find the last focused matching window from focus history
-    // Skip the currently focused window to enable cycling behavior
-    if let Some(win_id) = state.get_last_focused_matching(|w| {
-        window_matches(w, match_opts) && Some(w.id) != currently_focused
-    }) {
-        focus_window_by_id(win_id)
-    } else {
-        // Fallback: if no match in focus history (or only match is current), find any matching window
-        // This handles newly spawned windows that haven't been focused yet
-        if let Some(win) = state
+    // Helper to find and focus any matching window
+    let find_any_match = || {
+        state
             .all_windows
             .iter()
-            .find(|w| window_matches(w, match_opts) && Some(w.id) != currently_focused)
-        {
-            focus_window_by_id(win.id)
-        } else {
-            // If the only matching window is currently focused, stay on it
-            if let Some(win) = state
-                .all_windows
-                .iter()
-                .find(|w| window_matches(w, match_opts))
-            {
-                focus_window_by_id(win.id)
-            } else {
-                Err(NO_MATCHING_WINDOW.to_owned())
-            }
-        }
+            .find(|w| window_matches(w, match_opts))
+            .map(|w| w.id)
+    };
+
+    // Check if a matching window is already focused
+    let focused_matches = currently_focused.is_some_and(|id| {
+        state
+            .all_windows
+            .iter()
+            .find(|w| w.id == id)
+            .is_some_and(|w| window_matches(w, match_opts))
+    });
+
+    let window_id = if focused_matches {
+        // Cycling mode: find the first matching window (which will be the next one
+        // after rotation due to VecDeque behavior)
+        find_any_match()
+    } else {
+        // Initial focus: use focus history to pick the most recently used match,
+        // or fallback to any matching window if none in history
+        state
+            .get_last_focused_matching(|w| window_matches(w, match_opts))
+            .or_else(find_any_match)
+    };
+
+    match window_id {
+        Some(id) => focus_window_by_id(id),
+        None => Err(NO_MATCHING_WINDOW.to_owned()),
     }
 }
 
