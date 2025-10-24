@@ -51,7 +51,9 @@ impl State {
     pub fn register_window(&mut self, win: Window) -> Result<String, String> {
         if let Some(idx) = self.all_windows.iter().position(|w| w.id == win.id)
         {
+            // An existing window which changed in some way.
             if win.is_focused {
+                // Whatever window had focus before now hasn't anymore.
                 self.all_windows
                     .iter_mut()
                     .for_each(|w| w.is_focused = false);
