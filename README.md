@@ -75,13 +75,16 @@ same for niri.  The difference is that niri has no hidden workspace, so the
 scratchpad is actually the bottom-most non-empty workspace.  When you focus
 that, nirius will move the scratchpad windows to the workspace below.
 
-- `scratchpad-toggle`: Moves the current window to the scratchpad if it's not a
-  scratchpad window already.  If it is, removes it from the scratchpad, i.e.,
-  it's just a normal floating window afterwards.  Making a scratchpad window
-  tiled again also removes its scratchpad state implicitly.
-- `scratchpad-show`: Shows a window from the scratchpad.  If a scratchpad
-  window is already shown, moves it back to the scratchpad.  Repeated
-  invocations cycle though all scratchpad windows.
+- `scratchpad-toggle [--app-id PATTERN] [--no-move]`: Moves the current window
+  (or a window matching the app-id pattern) to the scratchpad if it's not a
+  scratchpad window already. If it is, removes it from the scratchpad, i.e., it's
+  just a normal floating window afterwards. The `--no-move` flag toggles the
+  scratchpad state without moving the window. Making a scratchpad window tiled
+  again also removes its scratchpad state implicitly.
+- `scratchpad-show [--app-id PATTERN]`: Shows a window from the scratchpad. If a
+  scratchpad window is already shown, moves it back to the scratchpad. When no
+  app-id is specified, shows the most recently focused scratchpad window. When
+  an app-id pattern is provided, shows a scratchpad window matching that pattern.
 
 ### <a id="installation">Installation</a>
 

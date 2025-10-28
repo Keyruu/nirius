@@ -94,6 +94,8 @@ pub enum NiriusCmd {
     ScratchpadToggle {
         #[clap(short = 'a', long, help = "A regex matched on window app-ids")]
         app_id: Option<String>,
+        #[clap(long, help = "Toggle scratchpad state without moving the window")]
+        no_move: bool,
     },
     /// Shows a window from the scratchpad or moves it back to the scratchpad
     /// if the current window is a scratchpad window.  Repeated invocations
@@ -144,7 +146,7 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
                 list_marked(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
             }
         }
-        NiriusCmd::ScratchpadToggle { app_id } => scratchpad_toggle(app_id.as_deref()),
+        NiriusCmd::ScratchpadToggle { app_id, no_move } => scratchpad_toggle(app_id.as_deref(), *no_move),
         NiriusCmd::ScratchpadShow { app_id } => scratchpad_show(app_id.as_deref()),
     }
 }
@@ -403,7 +405,7 @@ fn list_all_marked() -> Result<String, String> {
     Ok(s)
 }
 
-fn scratchpad_toggle(app_id: Option<&str>) -> Result<String, String> {
+fn scratchpad_toggle(app_id: Option<&str>, no_move: bool) -> Result<String, String> {
     let mut state = STATE.write().expect("Could not write() STATE.");
 
     let window_id = if let Some(app_id_pattern) = app_id {
@@ -431,8 +433,13 @@ fn scratchpad_toggle(app_id: Option<&str>) -> Result<String, String> {
         Ok(format!("Removed window {} from scratchpad.", window_id))
     } else {
         state.scratchpad_win_ids.push(window_id);
-        drop(state);
-        scratchpad_move()
+
+        if no_move {
+            Ok(format!("Added window {} to scratchpad (no move).", window_id))
+        } else {
+            drop(state);
+            scratchpad_move()
+        }
     }
 }
 
