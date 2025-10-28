@@ -82,7 +82,8 @@ pub enum NiriusCmd {
         #[clap(short = 'a', long, help = "List all marks with their windows")]
         all: bool,
     },
-    /// Toggles the scratchpad state of the current window.
+    /// Toggles the scratchpad state of the current window or a window matching
+    /// the given app-id.
     ///
     /// If it's no scratchpad window currently, makes it foating (if it's not
     /// already) and moves it to the scratchpad workspace (the bottom-most
@@ -90,11 +91,17 @@ pub enum NiriusCmd {
     ///
     /// If it's already a scratchpad window, removes it from there, i.e., from
     /// then on, it's just a normal window.
-    ScratchpadToggle,
+    ScratchpadToggle {
+        #[clap(short = 'a', long, help = "A regex matched on window app-ids")]
+        app_id: Option<String>,
+    },
     /// Shows a window from the scratchpad or moves it back to the scratchpad
     /// if the current window is a scratchpad window.  Repeated invocations
-    /// cycle through all scratchpad windows.
-    ScratchpadShow,
+    /// cycle through all scratchpad windows. Optionally filter by app-id.
+    ScratchpadShow {
+        #[clap(short = 'a', long, help = "A regex matched on window app-ids")]
+        app_id: Option<String>,
+    },
 }
 
 #[derive(clap::Parser, PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
@@ -137,8 +144,8 @@ pub fn exec_nirius_cmd(cmd: NiriusCmd) -> Result<String, String> {
                 list_marked(mark.clone().unwrap_or(DEFAULT_MARK.to_owned()))
             }
         }
-        NiriusCmd::ScratchpadToggle => scratchpad_toggle(),
-        NiriusCmd::ScratchpadShow => scratchpad_show(),
+        NiriusCmd::ScratchpadToggle { app_id } => scratchpad_toggle(app_id.as_deref()),
+        NiriusCmd::ScratchpadShow { app_id } => scratchpad_show(app_id.as_deref()),
     }
 }
 
@@ -396,19 +403,36 @@ fn list_all_marked() -> Result<String, String> {
     Ok(s)
 }
 
-fn scratchpad_toggle() -> Result<String, String> {
+fn scratchpad_toggle(app_id: Option<&str>) -> Result<String, String> {
     let mut state = STATE.write().expect("Could not write() STATE.");
-    if let Some(id) = state.get_focused_win_id() {
-        if state.scratchpad_win_ids.contains(&id) {
-            state.scratchpad_win_ids.retain(|wid| *wid != id);
-            Ok(format!("Removed window {id} from scratchpad."))
-        } else {
-            state.scratchpad_win_ids.push(id);
-            drop(state);
-            scratchpad_move()
-        }
+
+    let window_id = if let Some(app_id_pattern) = app_id {
+        let regex = Regex::new(app_id_pattern)
+            .map_err(|e| format!("Invalid regex pattern: {}", e))?;
+
+        state
+            .all_windows
+            .iter()
+            .find(|w| {
+                w.app_id
+                    .as_ref()
+                    .is_some_and(|aid| regex.is_match(aid))
+            })
+            .map(|w| w.id)
+            .ok_or_else(|| format!("No window found matching app-id pattern: {}", app_id_pattern))?
     } else {
-        Err("No focused window.".to_owned())
+        state
+            .get_focused_win_id()
+            .ok_or_else(|| "No focused window.".to_owned())?
+    };
+
+    if state.scratchpad_win_ids.contains(&window_id) {
+        state.scratchpad_win_ids.retain(|wid| *wid != window_id);
+        Ok(format!("Removed window {} from scratchpad.", window_id))
+    } else {
+        state.scratchpad_win_ids.push(window_id);
+        drop(state);
+        scratchpad_move()
     }
 }
 
@@ -450,7 +474,7 @@ pub(crate) fn scratchpad_move() -> Result<String, String> {
     }
 }
 
-fn scratchpad_show() -> Result<String, String> {
+fn scratchpad_show(app_id: Option<&str>) -> Result<String, String> {
     let state = STATE.read().expect("Could not read STATE.");
     let opt_win_id = state.get_focused_win_id();
     if opt_win_id
@@ -463,20 +487,44 @@ fn scratchpad_show() -> Result<String, String> {
             .get_focused_workspace_id()
             .ok_or("No focused workspace.")?;
 
-        if let Some(id) = state
-            .all_windows
-            .iter()
-            .find(|w| state.scratchpad_win_ids.contains(&w.id))
-            .map(|w| w.id)
-        {
-            move_window_to_workspace(
-                id,
-                WorkspaceReferenceArg::Id(focused_ws_id),
-                true,
-            )?;
-            focus_window_by_id(id)
+        let window_id = if let Some(app_id_pattern) = app_id {
+            let regex = Regex::new(app_id_pattern)
+                .map_err(|e| format!("Invalid regex pattern: {}", e))?;
+
+            state
+                .all_windows
+                .iter()
+                .find(|w| {
+                    state.scratchpad_win_ids.contains(&w.id)
+                        && w.app_id
+                            .as_ref()
+                            .is_some_and(|aid| regex.is_match(aid))
+                })
+                .map(|w| w.id)
+                .ok_or_else(|| {
+                    format!(
+                        "No scratchpad window found matching app-id pattern: {}",
+                        app_id_pattern
+                    )
+                })?
         } else {
-            Err("No window in the scratchpad.".to_owned())
-        }
+            state
+                .get_last_focused_matching(|w| state.scratchpad_win_ids.contains(&w.id))
+                .or_else(|| {
+                    state
+                        .all_windows
+                        .iter()
+                        .find(|w| state.scratchpad_win_ids.contains(&w.id))
+                        .map(|w| w.id)
+                })
+                .ok_or_else(|| "No window in the scratchpad.".to_owned())?
+        };
+
+        move_window_to_workspace(
+            window_id,
+            WorkspaceReferenceArg::Id(focused_ws_id),
+            true,
+        )?;
+        focus_window_by_id(window_id)
     }
 }
