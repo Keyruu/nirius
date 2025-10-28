@@ -184,14 +184,35 @@ fn focus_or_spawn(
 
 fn focus(match_opts: &MatchOptions) -> Result<String, String> {
     let state = STATE.read().expect("Could not read() STATE.");
-    if let Some(win) = state
-        .all_windows
-        .iter()
-        .find(|w| window_matches(w, match_opts))
-    {
-        focus_window_by_id(win.id)
+    let currently_focused = state.get_focused_win_id();
+
+    let find_any_match = || {
+        state
+            .all_windows
+            .iter()
+            .find(|w| window_matches(w, match_opts))
+            .map(|w| w.id)
+    };
+
+    let focused_matches = currently_focused.is_some_and(|id| {
+        state
+            .all_windows
+            .iter()
+            .find(|w| w.id == id)
+            .is_some_and(|w| window_matches(w, match_opts))
+    });
+
+    let window_id = if focused_matches {
+        find_any_match()
     } else {
-        Err(NO_MATCHING_WINDOW.to_owned())
+        state
+            .get_last_focused_matching(|w| window_matches(w, match_opts))
+            .or_else(find_any_match)
+    };
+
+    match window_id {
+        Some(id) => focus_window_by_id(id),
+        None => Err(NO_MATCHING_WINDOW.to_owned()),
     }
 }
 

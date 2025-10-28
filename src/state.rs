@@ -33,12 +33,21 @@ impl State {
         self.all_windows.iter().find(|w| w.is_focused).map(|w| w.id)
     }
 
+    pub fn get_last_focused_matching<F>(&self, predicate: F) -> Option<u64>
+    where
+        F: Fn(&Window) -> bool,
+    {
+        self.all_windows
+            .iter()
+            .rev()
+            .find(|w| predicate(w))
+            .map(|w| w.id)
+    }
+
     pub fn register_window(&mut self, win: Window) -> Result<String, String> {
         if let Some(idx) = self.all_windows.iter().position(|w| w.id == win.id)
         {
-            // An existing window which changed in some way.
             if win.is_focused {
-                // Whatever window had focus before now hasn't anymore.
                 self.all_windows
                     .iter_mut()
                     .for_each(|w| w.is_focused = false);
