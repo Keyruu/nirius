@@ -516,14 +516,10 @@ fn scratchpad_show(app_id: Option<&str>) -> Result<String, String> {
                 })?
         } else {
             state
-                .get_last_focused_matching(|w| state.scratchpad_win_ids.contains(&w.id))
-                .or_else(|| {
-                    state
-                        .all_windows
-                        .iter()
-                        .find(|w| state.scratchpad_win_ids.contains(&w.id))
-                        .map(|w| w.id)
-                })
+                .all_windows
+                .iter()
+                .find(|w| state.scratchpad_win_ids.contains(&w.id))
+                .map(|w| w.id)
                 .ok_or_else(|| "No window in the scratchpad.".to_owned())?
         };
 
